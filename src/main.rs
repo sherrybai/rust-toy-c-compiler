@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
         Err(e) => return Err(e),
     };
     println!("{}", contents);
-    let lexed: Vec<TokenType> = lex(&contents[..]);
+    let lexed: Vec<TokenType> = lex(&contents[..])?;
     println!("{:?}", lexed);
     Ok(())
 }

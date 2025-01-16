@@ -15,7 +15,7 @@ pub enum TokenType {
     Semicolon,
     Keyword(String),
     Identifier(String),
-    IntLiteral(u64),
+    IntLiteral(u32),
 }
 
 impl TokenType {
@@ -47,7 +47,7 @@ impl TokenType {
         match variant {
             Self::Keyword(_) => Ok(Self::Keyword(m.to_string())),
             Self::Identifier(_) => Ok(Self::Identifier(m.to_string())),
-            Self::IntLiteral(_) => Ok(Self::IntLiteral(str::parse::<u64>(m)?)),
+            Self::IntLiteral(_) => Ok(Self::IntLiteral(str::parse::<u32>(m)?)),
             _ => Ok(variant)
         }
     }

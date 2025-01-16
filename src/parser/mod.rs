@@ -17,7 +17,7 @@ pub enum AstNode {
         expression: Box<Self>,
     },
     Expression {
-        constant: u64,
+        constant: u32,
     }
 }
 

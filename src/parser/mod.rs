@@ -59,4 +59,12 @@ mod tests {
         let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter());
         assert_eq!(exp.unwrap(), AstNode::Expression{constant: 2});
     }
+
+    #[test]
+    fn test_parse_statement() {
+        let mut token_vec = vec![TokenType::Keyword("return".into()), TokenType::IntLiteral(2)];
+        let statement: anyhow::Result<AstNode> = AstNode::parse_statement(&mut token_vec.iter());
+        let expression = Box::new(AstNode::Expression { constant: 2 });
+        assert_eq!(statement.unwrap(), AstNode::Statement{expression});
+    }
 }

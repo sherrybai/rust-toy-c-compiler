@@ -19,8 +19,29 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    pub fn from_index(i: usize, m: &str) -> anyhow::Result<TokenType> {
-        let Some(variant) = TokenType::iter().nth(i-1) else {
+    pub fn lex(contents: &str) -> anyhow::Result<Vec<Self>> {
+        let mut vec: Vec<Self> = vec![];
+    
+        let re = Regex::new(&Self::get_regex_pattern()[..])?;
+        for capture in re.captures_iter(contents) {
+            for (i, group) in capture.iter().enumerate() {
+                if i == 0 {  // first index indicates overall match
+                    continue
+                }
+                // subsequent index with non-null value indicates the specific capture group that captured the match
+                match group {
+                    Some(m) => {
+                        vec.push(Self::from_index(i, m.as_str())?);
+                    },
+                    None => ()
+                }
+            }
+        }
+        Ok(vec)
+    }
+
+    pub fn from_index(i: usize, m: &str) -> anyhow::Result<Self> {
+        let Some(variant) = Self::iter().nth(i-1) else {
             return Err(anyhow!("No enum variant found for index {:?}", i));
         };
         match variant {
@@ -45,31 +66,9 @@ impl TokenType {
     }
 
     pub fn get_regex_pattern() -> String {
-        TokenType::iter().map(|t| format!(r"({})", t.to_regex_pattern())).join("|")
+        Self::iter().map(|t| format!(r"({})", t.to_regex_pattern())).join("|")
     }
 
-}
-
-
-pub fn lex(contents: &str) -> anyhow::Result<Vec<TokenType>> {
-    let mut vec: Vec<TokenType> = vec![];
-
-    let re = Regex::new(&TokenType::get_regex_pattern()[..])?;
-    for capture in re.captures_iter(contents) {
-        for (i, group) in capture.iter().enumerate() {
-            if i == 0 {  // first index indicates overall match
-                continue
-            }
-            // subsequent index with non-null value indicates the specific capture group that captured the match
-            match group {
-                Some(m) => {
-                    vec.push(TokenType::from_index(i, m.as_str())?);
-                },
-                None => ()
-            }
-        }
-    }
-    Ok(vec)
 }
 
 #[cfg(test)]
@@ -94,6 +93,6 @@ mod tests {
             TokenType::Semicolon,
             TokenType::ClosedBrace,
         ];
-        assert_eq!(lex(contents).unwrap(), expected);
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }
 }

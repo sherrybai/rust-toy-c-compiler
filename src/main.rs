@@ -6,8 +6,8 @@ use std::io::Read;
 
 use clap::Parser;
 
-use crate::lexer::lex;
 use crate::lexer::TokenType;
+use crate::parser::AstNode;
 
 
 #[derive(Parser, Debug)]
@@ -32,7 +32,9 @@ fn main() -> anyhow::Result<()> {
         Err(e) => return Err(e),
     };
     println!("{}", contents);
-    let lexed: Vec<TokenType> = lex(&contents[..])?;
+    let lexed: Vec<TokenType> = TokenType::lex(&contents[..])?;
     println!("{:?}", lexed);
+    let parsed: AstNode = AstNode::parse(&lexed[..])?;
+    println!("{:?}", parsed);
     Ok(())
 }

@@ -4,7 +4,7 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 #[allow(dead_code)]
-#[derive(Clone, Debug, EnumIter)]
+#[derive(Clone, Debug, EnumIter, PartialEq)]
 pub enum TokenType {
     OpenBrace,
     ClosedBrace,
@@ -67,4 +67,31 @@ pub fn lex(contents: &str) -> Vec<TokenType> {
         }
     }
     vec
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lex() {
+        let contents = "
+            int main() {
+                return 2;
+            }
+        ";
+        let expected = vec![
+            TokenType::Keyword("int".into()), 
+            TokenType::Identifier("main".into()),
+            TokenType::OpenParens, 
+            TokenType::ClosedParens, 
+            TokenType::OpenBrace,
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+            TokenType::ClosedBrace,
+        ];
+        assert_eq!(lex(contents), expected);
+    }
+
 }

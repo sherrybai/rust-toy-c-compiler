@@ -1,7 +1,11 @@
+use std::mem::Discriminant;
+
 use itertools::Itertools;
 use regex::Regex;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+
+use anyhow::anyhow;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug, EnumIter, PartialEq)]
@@ -17,7 +21,7 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    pub fn from_index(i: usize, m: &str) -> TokenType{
+    pub fn from_index(i: usize, m: &str) -> TokenType {
         let variant = TokenType::iter().nth(i-1).unwrap();  // TODO: fix later
         match variant {
             Self::Keyword(_) => Self::Keyword(m.to_string()),
@@ -28,23 +32,22 @@ impl TokenType {
     }
 
     pub fn to_regex_pattern(&self) -> &str {
-        use TokenType::*;
-
         match self {
-            OpenBrace => r"\{",
-            ClosedBrace => r"\}",
-            OpenParens => r"\(",
-            ClosedParens => r"\)",
-            Semicolon => r";",
-            Keyword(_) => r"int|return",
-            Identifier(_) => r"[a-zA-Z]\w*",
-            IntLiteral(_) => r"[0-9]+"
+            Self::OpenBrace => r"\{",
+            Self::ClosedBrace => r"\}",
+            Self::OpenParens => r"\(",
+            Self::ClosedParens => r"\)",
+            Self::Semicolon => r";",
+            Self::Keyword(_) => r"int|return",
+            Self::Identifier(_) => r"[a-zA-Z]\w*",
+            Self::IntLiteral(_) => r"[0-9]+"
         }
     }
 
     pub fn get_regex_pattern() -> String {
         TokenType::iter().map(|t| format!(r"({})", t.to_regex_pattern())).join("|")
     }
+
 }
 
 

@@ -4,6 +4,8 @@ use crate::lexer::TokenType;
 use anyhow::Context;
 use anyhow::anyhow;
 
+const NO_NEXT_TOKEN_MSG: &str = "no next token";
+
 #[derive(Debug, PartialEq)]
 pub enum AstNode {
     Program {
@@ -27,8 +29,8 @@ impl AstNode {
     }
 
     fn parse_function(token_iter: &mut Iter<TokenType>) -> anyhow::Result<Self> {
-        // Parse keyword token
-        if let TokenType::Keyword(s) = token_iter.next().context(anyhow!("no next token"))? {
+        // parse keyword token
+        if let TokenType::Keyword(s) = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? {
             if s != "int"  {
                 return Err(anyhow!("First keyword of function is not 'int'"));
             }
@@ -39,28 +41,28 @@ impl AstNode {
 
         // Parse identifier
         let identifier: String;
-        if let TokenType::Identifier(s) = token_iter.next().context(anyhow!("no next token"))? {
+        if let TokenType::Identifier(s) = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? {
             identifier = s.to_string();
         } else {
             return Err(anyhow!("No function identifier found"));
         }
 
         // () after identifier
-        let TokenType::OpenParens = token_iter.next().context(anyhow!("no next token"))? else {
+        let TokenType::OpenParens = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
             return Err(anyhow!("No open parens"));
         };
-        let TokenType::ClosedParens = token_iter.next().context(anyhow!("no next token"))? else {
+        let TokenType::ClosedParens = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
             return Err(anyhow!("No closed parens"));
         };
 
         // {
-        let TokenType::OpenBrace = token_iter.next().context(anyhow!("no next token"))? else {
+        let TokenType::OpenBrace = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
             return Err(anyhow!("No open brace"));
         };
         // parse statement
         let statement = AstNode::parse_statement(token_iter)?;
         // }
-        let TokenType::ClosedBrace = token_iter.next().context(anyhow!("no next token"))? else {
+        let TokenType::ClosedBrace = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
             return Err(anyhow!("No closed brace"));
         }; 
 
@@ -70,33 +72,32 @@ impl AstNode {
     }
 
     fn parse_statement(token_iter: &mut Iter<TokenType>) -> anyhow::Result<Self> {
-        let keyword_token = token_iter.next().context(anyhow!("no next token"))?;
-        let statement: AstNode;
-        match keyword_token {
-            TokenType::Keyword(s) => {
-                if s != "return" {
-                    return Err(anyhow!("First keyword of statement is not 'return'"))
-                }
-                let expression = AstNode::parse_expression(token_iter)?;
-                statement = AstNode::Statement{expression: Box::new(expression)};
-            },
-            _ => { return Err(anyhow!("First token of statement is not a keyword")) }
+        // parse keyword token
+        if let TokenType::Keyword(s) = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? {
+            if s != "return" {
+                return Err(anyhow!("First keyword of statement is not 'return'"))
+            }
+        } else {
+            return Err(anyhow!("First token of statement is not a keyword"));
         }
-        let semicolon_token = token_iter.next().context(anyhow!("no next token"))?;
-        match semicolon_token {
-            TokenType::Semicolon => Ok(statement),
-            _ => Err(anyhow!("Statement does not end in semicolon"))
-        }
+
+        let expression = AstNode::parse_expression(token_iter)?;
+        let statement = AstNode::Statement{expression: Box::new(expression)};
+
+        // must end in semicolon
+        let TokenType::Semicolon = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
+            return Err(anyhow!("Statement does not end in semicolon"));
+        };
+
+        // return node
+        Ok(statement)
     }
 
     fn parse_expression(token_iter: &mut Iter<TokenType>) -> anyhow::Result<Self> {
-        let token = token_iter.next().context(anyhow!("no next token"))?;
-        match token {
-            TokenType::IntLiteral(constant) => {
-                Ok(AstNode::Expression{constant: *constant})
-            },
-            _ => Err(anyhow!("Expression not a constant"))
-        }
+        let TokenType::IntLiteral(constant) = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
+            return Err(anyhow!("Expression not a constant"));
+        };
+        Ok(AstNode::Expression{constant: *constant})
     }
 }
 

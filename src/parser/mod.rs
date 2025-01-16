@@ -9,14 +9,14 @@ const NO_NEXT_TOKEN_MSG: &str = "no next token";
 #[derive(Debug, PartialEq)]
 pub enum AstNode {
     Program {
-        function: Box<AstNode>,
+        function: Box<Self>,
     },
     Function {
         identifier: String,
-        statement: Box<AstNode>,
+        statement: Box<Self>,
     },
     Statement {
-        expression: Box<AstNode>,
+        expression: Box<Self>,
     },
     Expression {
         constant: u64,
@@ -24,8 +24,10 @@ pub enum AstNode {
 }
 
 impl AstNode {
-    pub fn parse(tokens: &[TokenType]) {
-        // pass
+    pub fn parse(tokens: &[TokenType]) -> anyhow::Result<Self> {
+        let mut token_iter = tokens.iter();
+        let function: Self = Self::parse_function(&mut token_iter)?;
+        Ok(Self::Program{ function: Box::new(function) })
     }
 
     fn parse_function(token_iter: &mut Iter<TokenType>) -> anyhow::Result<Self> {
@@ -60,14 +62,14 @@ impl AstNode {
             return Err(anyhow!("No open brace"));
         };
         // parse statement
-        let statement = AstNode::parse_statement(token_iter)?;
+        let statement = Self::parse_statement(token_iter)?;
         // }
         let TokenType::ClosedBrace = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
             return Err(anyhow!("No closed brace"));
         }; 
 
         // return node
-        Ok(AstNode::Function { identifier, statement: Box::new(statement) })
+        Ok(Self::Function { identifier, statement: Box::new(statement) })
 
     }
 
@@ -81,8 +83,8 @@ impl AstNode {
             return Err(anyhow!("First token of statement is not a keyword"));
         }
 
-        let expression = AstNode::parse_expression(token_iter)?;
-        let statement = AstNode::Statement{expression: Box::new(expression)};
+        let expression = Self::parse_expression(token_iter)?;
+        let statement = Self::Statement{expression: Box::new(expression)};
 
         // must end in semicolon
         let TokenType::Semicolon = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
@@ -97,7 +99,7 @@ impl AstNode {
         let TokenType::IntLiteral(constant) = token_iter.next().context(anyhow!(NO_NEXT_TOKEN_MSG))? else {
             return Err(anyhow!("Expression not a constant"));
         };
-        Ok(AstNode::Expression{constant: *constant})
+        Ok(Self::Expression{constant: *constant})
     }
 }
 

@@ -67,6 +67,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34ac096ce696dc2fcabef30516bb13c0a68a11d30131d3df6f04711467681b04"
 
 [[package]]
+name = "assert-str"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6eff46575e86b852295e41df8599e94a910b1136c6af2821df9925f3cf8a1389"
+
+[[package]]
 name = "clap"
 version = "4.5.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -203,6 +209,7 @@ name = "rust-toy-c-compiler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "assert-str",
  "clap",
  "itertools",
  "lazy_static",

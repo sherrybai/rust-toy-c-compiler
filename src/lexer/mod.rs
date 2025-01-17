@@ -16,6 +16,9 @@ pub enum TokenType {
     Keyword(String),
     Identifier(String),
     IntLiteral(u32),
+    Negation,
+    BitwiseComplement,
+    LogicalNegation,
 }
 
 impl TokenType {
@@ -61,7 +64,10 @@ impl TokenType {
             Self::Semicolon => r";",
             Self::Keyword(_) => r"int|return",
             Self::Identifier(_) => r"[a-zA-Z]\w*",
-            Self::IntLiteral(_) => r"[0-9]+"
+            Self::IntLiteral(_) => r"[0-9]+",
+            Self::Negation => r"\-",
+            Self::BitwiseComplement => r"\~",
+            Self::LogicalNegation => r"!",
         }
     }
 
@@ -92,6 +98,21 @@ mod tests {
             TokenType::IntLiteral(2),
             TokenType::Semicolon,
             TokenType::ClosedBrace,
+        ];
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_lex_stage_2_unary_ops() {
+        let contents = "
+            -
+            ~
+            !
+        ";
+        let expected = vec![
+            TokenType::Negation,
+            TokenType::BitwiseComplement,
+            TokenType::LogicalNegation,
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }

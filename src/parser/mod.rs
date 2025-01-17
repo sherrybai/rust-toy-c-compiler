@@ -5,6 +5,24 @@ use anyhow::Context;
 use anyhow::anyhow;
 
 #[derive(Debug, PartialEq)]
+pub enum Operator {
+    Negation,
+    BitwiseComplement,
+    LogicalNegation
+}
+
+impl Operator {
+    fn get_from_token(t: &TokenType) -> anyhow::Result<Self>{
+        match t {
+            TokenType::Negation => Ok(Self::Negation),
+            TokenType::BitwiseComplement => Ok(Self::BitwiseComplement),
+            TokenType::LogicalNegation => Ok(Self::LogicalNegation),
+            _ => Err(anyhow!("Unsupported operator"))
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum AstNode {
     Program {
         function: Box<Self>,
@@ -16,7 +34,12 @@ pub enum AstNode {
     Statement {
         expression: Box<Self>,
     },
-    Expression {
+    // Expressions
+    UnaryOp {
+        operator: Operator,
+        expression: Box<Self>,
+    },
+    Constant {
         constant: u32,
     }
 }
@@ -94,10 +117,16 @@ impl AstNode {
     }
 
     fn parse_expression(token_iter: &mut Iter<TokenType>) -> anyhow::Result<Self> {
-        let TokenType::IntLiteral(constant) = Self::get_next_token_from_iter(token_iter)? else {
-            return Err(anyhow!("Expression not a constant"));
-        };
-        Ok(Self::Expression{constant: *constant})
+        let token = Self::get_next_token_from_iter(token_iter)?;
+        match token {
+            TokenType::IntLiteral(constant) => Ok(Self::Constant { constant: *constant }),
+            TokenType::Negation | TokenType::BitwiseComplement | TokenType::LogicalNegation  => {
+                let nested_expression = Self::parse_expression(token_iter)?;
+                let operator = Operator::get_from_token(token)?;
+                Ok(Self::UnaryOp { operator, expression: Box::new(nested_expression)})
+            },
+            _ => Err(anyhow!("Could not parse expression"))
+        }
     }
 
     fn get_next_token_from_iter<'a>(token_iter: &mut Iter<'a, TokenType>) -> anyhow::Result<&'a TokenType>{
@@ -110,17 +139,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_expression() {
+    fn test_parse_unary_op() {
+        let token_vec = vec![TokenType::BitwiseComplement, TokenType::IntLiteral(2)];
+        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter());
+        assert_eq!(
+            exp.unwrap(), 
+            AstNode::UnaryOp { 
+                operator: Operator::BitwiseComplement, 
+                expression: Box::new(AstNode::Constant { constant: 2 }),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_unary_op_nested() {
+        let token_vec = vec![TokenType::BitwiseComplement, TokenType::BitwiseComplement, TokenType::IntLiteral(2)];
+        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter());
+        assert_eq!(
+            exp.unwrap(), 
+            AstNode::UnaryOp { 
+                operator: Operator::BitwiseComplement, 
+                expression: Box::new(
+                    AstNode::UnaryOp { 
+                        operator: Operator::BitwiseComplement, 
+                        expression: Box::new(
+                            AstNode::Constant { constant: 2 }
+                        ),
+                    },
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_constant() {
         let token_vec = vec![TokenType::IntLiteral(2)];
         let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter());
-        assert_eq!(exp.unwrap(), AstNode::Expression{constant: 2});
+        assert_eq!(exp.unwrap(), AstNode::Constant{constant: 2});
     }
 
     #[test]
     fn test_parse_statement() {
         let token_vec = vec![TokenType::Keyword("return".into()), TokenType::IntLiteral(2), TokenType::Semicolon];
         let statement: anyhow::Result<AstNode> = AstNode::parse_statement(&mut token_vec.iter());
-        let expression = Box::new(AstNode::Expression { constant: 2 });
+        let expression = Box::new(AstNode::Constant { constant: 2 });
         assert_eq!(statement.unwrap(), AstNode::Statement{expression});
     }
 
@@ -138,7 +200,7 @@ mod tests {
             TokenType::ClosedBrace
         ];
         let function: anyhow::Result<AstNode> = AstNode::parse_function(&mut token_vec.iter());
-        let expression = Box::new(AstNode::Expression { constant: 2 });
+        let expression = Box::new(AstNode::Constant { constant: 2 });
         let statement = Box::new(AstNode::Statement {expression});
         assert_eq!(function.unwrap(), AstNode::Function { identifier: "main".into(), statement });
     }

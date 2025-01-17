@@ -45,7 +45,7 @@ fn generate_statement(node: AstNode) -> anyhow::Result<String> {
     // only return statements supported for now
     let mut result: String = String::new();
 
-    let AstNode::Expression{constant} = *expression else {
+    let AstNode::Constant{constant} = *expression else {
         return Err(anyhow!("Malformed expression"))
     };
     result.push_str(&format!("{}mov{}w0, #{}\n", INDENT, INDENT, constant));
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn test_codegen() {
-        let expression = Box::new(AstNode::Expression { constant: 2 });
+        let expression = Box::new(AstNode::Constant { constant: 2 });
         let statement = Box::new(AstNode::Statement {expression});
         let function = Box::new(AstNode::Function {identifier: "main".into(), statement});
         let program = AstNode::Program{function};

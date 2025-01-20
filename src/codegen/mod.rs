@@ -67,8 +67,8 @@ fn generate_expression(node: AstNode) -> anyhow::Result<String> {
             let constant_str = format!("#{}", constant);
             result.push_str(&format_instruction("mov", vec!["w0", &constant_str[..]]));
         },
-        AstNode::UnaryOp { operator, expression } => {
-            let nested_expression = generate_expression(*expression)?;
+        AstNode::UnaryOp { operator, factor } => {
+            let nested_expression = generate_expression(*factor)?;
             result.push_str(&nested_expression);
             // assume previous operation moves the value to w0
             match operator {
@@ -83,10 +83,13 @@ fn generate_expression(node: AstNode) -> anyhow::Result<String> {
                     result.push_str(&format_instruction("mov", vec!["w0", "#1"]));  // set w0 to 1 (doesn't clear flags)
                     result.push_str(&format_instruction("csel", vec!["w0", "w0", "wzr", "EQ"]));  // select 1 if true else 0
                 }
+                _ => {
+                    return Err(anyhow!("Not a unary operator"));
+                }
             }
         }
         _ => {
-            return Err(anyhow!("Malformed expression"))
+            return Err(anyhow!("Malformed expression"));
         }
     }
     Ok(result)
@@ -117,7 +120,7 @@ mod tests {
     #[test]
     fn test_unary_op() {
         let constant = Box::new(AstNode::Constant { constant: 2 });
-        let expression = Box::new(AstNode::UnaryOp { operator: Operator::BitwiseComplement, expression: constant });
+        let expression = Box::new(AstNode::UnaryOp { operator: Operator::BitwiseComplement, factor: constant });
         let statement = Box::new(AstNode::Statement {expression});
         let function = Box::new(AstNode::Function {identifier: "main".into(), statement});
         let program = AstNode::Program{function};

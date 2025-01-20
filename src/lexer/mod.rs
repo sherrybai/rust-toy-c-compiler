@@ -16,9 +16,12 @@ pub enum TokenType {
     Keyword(String),
     Identifier(String),
     IntLiteral(u32),
-    Negation,
+    Minus,
     BitwiseComplement,
     LogicalNegation,
+    Addition,
+    Multiplication,
+    Division
 }
 
 impl TokenType {
@@ -65,9 +68,12 @@ impl TokenType {
             Self::Keyword(_) => r"int|return",
             Self::Identifier(_) => r"[a-zA-Z]\w*",
             Self::IntLiteral(_) => r"[0-9]+",
-            Self::Negation => r"\-",
+            Self::Minus => r"\-",
             Self::BitwiseComplement => r"\~",
             Self::LogicalNegation => r"!",
+            Self::Addition => r"\+",
+            Self::Multiplication => r"\*",
+            Self::Division => r"\/",
         }
     }
 
@@ -110,9 +116,24 @@ mod tests {
             !
         ";
         let expected = vec![
-            TokenType::Negation,
+            TokenType::Minus,
             TokenType::BitwiseComplement,
             TokenType::LogicalNegation,
+        ];
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_lex_stage_3_binary_ops() {
+        let contents = "
+            +
+            *
+            /
+        ";
+        let expected = vec![
+            TokenType::Addition,
+            TokenType::Multiplication,
+            TokenType::Division,
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }

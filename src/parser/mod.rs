@@ -14,7 +14,7 @@ pub enum Operator {
 impl Operator {
     fn get_from_token(t: &TokenType) -> anyhow::Result<Self>{
         match t {
-            TokenType::Negation => Ok(Self::Negation),
+            TokenType::Minus => Ok(Self::Negation),
             TokenType::BitwiseComplement => Ok(Self::BitwiseComplement),
             TokenType::LogicalNegation => Ok(Self::LogicalNegation),
             _ => Err(anyhow!("Unsupported operator"))
@@ -120,7 +120,7 @@ impl AstNode {
         let token = Self::get_next_token_from_iter(token_iter)?;
         match token {
             TokenType::IntLiteral(constant) => Ok(Self::Constant { constant: *constant }),
-            TokenType::Negation | TokenType::BitwiseComplement | TokenType::LogicalNegation  => {
+            TokenType::Minus | TokenType::BitwiseComplement | TokenType::LogicalNegation  => {
                 let nested_expression = Self::parse_expression(token_iter)?;
                 let operator = Operator::get_from_token(token)?;
                 Ok(Self::UnaryOp { operator, expression: Box::new(nested_expression)})

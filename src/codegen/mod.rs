@@ -7,7 +7,7 @@ use crate::parser::{AstNode, Operator};
 const INDENT: &str = "	";
 
 pub struct Codegen {
-    stack_offset_bytes: u64
+    stack_offset_bytes: i32
 }
 
 impl Codegen {
@@ -40,10 +40,11 @@ impl Codegen {
     fn generate_push_instruction(&mut self, register: &str) -> String {
         let mut result = String::new();
         // allocate more space if needed
-        if self.stack_offset_bytes % 4 == 0 {
+        // sp pointer must be 16 byte aligned
+        if self.stack_offset_bytes % 16 == 0 {
             result.push_str(&Self::format_instruction("sub", vec!["sp", "sp", "#16"]));
         }
-        let offset = 16 - 4 * (self.stack_offset_bytes % 4 + 1);  // TODO: update to support other register sizes
+        let offset = 16 - self.stack_offset_bytes % 16 - 4;  // TODO: update to support other register sizes
         result.push_str(&Self::format_instruction("str", vec![register, &format!("[sp, {}]", offset)]));
         self.stack_offset_bytes += 4;
         result
@@ -51,11 +52,11 @@ impl Codegen {
 
     fn generate_pop_instruction(&mut self, register: &str) -> String {
         let mut result = String::new();
-        let offset = 16 - 4 * (self.stack_offset_bytes % 4 + 1);  // TODO: update to support other register sizes
+        let offset = (16 - self.stack_offset_bytes % 16) % 16;  // TODO: update to support other register sizes
         result.push_str(&Self::format_instruction("ldr", vec![register, &format!("[sp, {}]", offset)]));
         self.stack_offset_bytes -= 4;
         // free space if needed
-        if self.stack_offset_bytes % 4 == 0 {
+        if self.stack_offset_bytes % 16 == 0 {
             result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
         };
         result
@@ -201,6 +202,49 @@ mod tests {
     }
 
     #[test]
+    fn test_stack_push_pop() {
+        let mut codegen: Codegen = Codegen::new();
+        let mut result = String::new();
+
+        result.push_str(&codegen.generate_push_instruction("w0"));
+        assert_eq!(codegen.stack_offset_bytes, 4);
+        result.push_str(&codegen.generate_push_instruction("w1"));
+        assert_eq!(codegen.stack_offset_bytes, 8);
+        result.push_str(&codegen.generate_push_instruction("w2"));
+        assert_eq!(codegen.stack_offset_bytes, 12);
+        result.push_str(&codegen.generate_push_instruction("w3"));
+        assert_eq!(codegen.stack_offset_bytes, 16);
+        result.push_str(&codegen.generate_push_instruction("w4"));
+        assert_eq!(codegen.stack_offset_bytes, 20);
+
+        result.push_str(&&codegen.generate_pop_instruction("w0"));
+        result.push_str(&&codegen.generate_pop_instruction("w1"));
+        result.push_str(&&codegen.generate_pop_instruction("w2"));
+        result.push_str(&&codegen.generate_pop_instruction("w3"));
+        result.push_str(&&codegen.generate_pop_instruction("w4"));
+        assert_eq!(codegen.stack_offset_bytes, 0);
+
+        assert_str_trim_eq!(
+            result, "
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
+                    str	w1, [sp, 8]
+                    str	w2, [sp, 4]
+                    str	w3, [sp, 0]
+                    sub	sp, sp, #16
+                    str	w4, [sp, 12]
+                    ldr	w0, [sp, 12]
+                    add	sp, sp, 16
+                    ldr	w1, [sp, 0]
+                    ldr	w2, [sp, 4]
+                    ldr	w3, [sp, 8]
+                    ldr	w4, [sp, 12]
+                    add	sp, sp, 16
+            "
+        )
+    }
+
+    #[test]
     fn test_binary_op() {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
@@ -209,7 +253,7 @@ mod tests {
         let function = Box::new(AstNode::Function {identifier: "main".into(), statement});
         let program = AstNode::Program{function};
 
-        let mut codegen = Codegen::new();
+        let mut codegen: Codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
         assert_str_trim_eq!(
             result, "

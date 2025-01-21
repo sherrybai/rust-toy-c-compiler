@@ -330,6 +330,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_and_or_equality() {
+        let token_vec = vec![
+            TokenType::IntLiteral(2), 
+            TokenType::Equal, 
+            TokenType::IntLiteral(2), 
+            TokenType::OR, 
+            TokenType::IntLiteral(0), 
+        ];
+        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter().peekable());
+        assert_eq!(
+            exp.unwrap(), 
+            AstNode::BinaryOp { 
+                operator: Operator::OR,
+                expression: Box::new(
+                    AstNode::BinaryOp { 
+                        operator: Operator::Equal, 
+                        expression: Box::new( AstNode::Constant { constant: 2 } ), 
+                        next_expression: Box::new( AstNode::Constant { constant: 2 }),
+                    }
+                ),
+                next_expression: Box::new(
+                    AstNode::Constant { constant: 0 }
+                ),
+            }
+        )
+    }
+
+    #[test]
     fn test_parse_binary_op_and_or() {
         let token_vec = vec![
             TokenType::IntLiteral(1), 

@@ -7,12 +7,13 @@ use crate::parser::{AstNode, Operator};
 const INDENT: &str = "	";
 
 pub struct Codegen {
-    stack_offset_bytes: i32
+    stack_offset_bytes: u32,
+    label_counter: u32,
 }
 
 impl Codegen {
     pub fn new() -> Self {
-        Codegen { stack_offset_bytes: 0 }
+        Codegen { stack_offset_bytes: 0, label_counter: 1 }
     }
 
     pub fn codegen(&mut self, ast: AstNode) -> anyhow::Result<String> {
@@ -153,6 +154,67 @@ impl Codegen {
                     Operator::Division => {
                         result.push_str(&Self::format_instruction("sdiv", vec!["w0", "w1", "w0"]));
                     },
+                    Operator::AND => {
+                        let label_1 = &format!(".L{:?}", self.label_counter);
+                        let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                        self.label_counter += 2;
+                        // skip to label 1 if any value is 0
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "0"]));
+                        result.push_str(&Self::format_instruction("beq", vec![label_1]));
+                        result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                        result.push_str(&Self::format_instruction("beq", vec![label_1]));
+                        // otherwise, set result to 1 and skip to end
+                        result.push_str(&Self::format_instruction("mov", vec!["w0", "1"]));
+                        result.push_str(&Self::format_instruction("b", vec![label_2]));
+                        // jump here to set result to 0
+                        result.push_str(&format!("{}:\n", label_1));
+                        result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
+                        // mark end of this block
+                        result.push_str(&format!("{}:\n", label_2));
+
+                    },
+                    Operator::OR => {
+                        let label_1 = &format!(".L{:?}", self.label_counter);
+                        let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                        self.label_counter += 2;
+                        // skip to label 1 if any value is not 0
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "0"]));
+                        result.push_str(&Self::format_instruction("bne", vec![label_1]));
+                        result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                        result.push_str(&Self::format_instruction("bne", vec![label_1]));
+                        // otherwise, set result to 0 and skip to end
+                        result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
+                        result.push_str(&Self::format_instruction("b", vec![label_2]));
+                        // jump here to set result to 1
+                        result.push_str(&format!("{}:\n", label_1));
+                        result.push_str(&Self::format_instruction("mov", vec!["w0", "1"]));
+                        // mark end of this block
+                        result.push_str(&format!("{}:\n", label_2));
+                    },
+                    Operator::Equal => {
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "w0"]));
+                        result.push_str(&Self::format_instruction("cset", vec!["w0", "eq"]));
+                    },
+                    Operator::NotEqual => {
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "w0"]));
+                        result.push_str(&Self::format_instruction("cset", vec!["w0", "ne"]));
+                    },
+                    Operator::LessThan => {
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "w0"]));
+                        result.push_str(&Self::format_instruction("cset", vec!["w0", "lt"]));
+                    },
+                    Operator::LessThanOrEqual => {
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "w0"]));
+                        result.push_str(&Self::format_instruction("cset", vec!["w0", "le"]));
+                    },
+                    Operator::GreaterThan => {
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "w0"]));
+                        result.push_str(&Self::format_instruction("cset", vec!["w0", "gt"]));
+                    },
+                    Operator::GreaterThanOrEqual => {
+                        result.push_str(&Self::format_instruction("cmp", vec!["w1", "w0"]));
+                        result.push_str(&Self::format_instruction("cset", vec!["w0", "ge"]));
+                    },
                     _ => {
                         return Err(anyhow!("Not a binary operator"));
                     }
@@ -277,6 +339,41 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
+                    ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_and_op() {
+        let constant_1 = Box::new(AstNode::Constant { constant: 1 });
+        let constant_2 = Box::new(AstNode::Constant { constant: 2 });
+        let expression = Box::new(AstNode::BinaryOp { operator: Operator::AND, expression: constant_1, next_expression: constant_2 });
+        let statement = Box::new(AstNode::Statement {expression});
+        let function = Box::new(AstNode::Function {identifier: "main".into(), statement});
+        let program = AstNode::Program{function};
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(
+            result, "
+                .globl _main
+                _main:
+                    mov	w0, #1
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
+                    mov	w0, #2
+                    ldr	w1, [sp, 12]
+                    add	sp, sp, 16
+                    cmp	w1, 0
+                    beq	.L1
+                    cmp	w0, 0
+                    beq	.L1
+                    mov	w0, 1
+                    b	.L2
+                .L1:
+                    mov	w0, 0
+                .L2:
                     ret
             "
         )

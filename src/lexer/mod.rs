@@ -32,6 +32,8 @@ pub enum TokenType {
     Minus,
     BitwiseComplement,
     LogicalNegation,
+    // TODO: add tokens from stages 5-8
+    Comma,
 }
 
 impl TokenType {
@@ -92,6 +94,7 @@ impl TokenType {
             Self::LessThanOrEqual => r"<=",
             Self::GreaterThan => r">",
             Self::GreaterThanOrEqual => r">=",
+            Self::Comma => r",",
         }
     }
 
@@ -177,6 +180,34 @@ mod tests {
             TokenType::LessThanOrEqual,
             TokenType::GreaterThan,
             TokenType::GreaterThanOrEqual
+        ];
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
+    }
+    
+    #[test]
+    fn test_lex_stage_9_function() {
+        let contents = "
+            int hello(int x, int y) {
+                return x + y;
+            }
+        ";
+        let expected = vec![
+            TokenType::Keyword("int".into()), 
+            TokenType::Identifier("hello".into()),
+            TokenType::OpenParens, 
+            TokenType::Keyword("int".into()), 
+            TokenType::Identifier("x".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()), 
+            TokenType::Identifier("y".into()),
+            TokenType::ClosedParens, 
+            TokenType::OpenBrace,
+            TokenType::Keyword("return".into()),
+            TokenType::Identifier("x".into()),
+            TokenType::Addition,
+            TokenType::Identifier("y".into()),
+            TokenType::Semicolon,
+            TokenType::ClosedBrace,
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }

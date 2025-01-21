@@ -13,7 +13,15 @@ pub enum Operator {
     Subtraction,
     Addition,
     Multiplication,
-    Division
+    Division,
+    AND,
+    OR,
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual
 }
 
 impl Operator {
@@ -32,6 +40,14 @@ impl Operator {
             TokenType::Addition => Ok(Self::Addition),
             TokenType::Multiplication => Ok(Self::Multiplication),
             TokenType::Division => Ok(Self::Division),
+            TokenType::AND => Ok(Self::AND),
+            TokenType::OR => Ok(Self::OR),
+            TokenType::Equal => Ok(Self::Equal),
+            TokenType::NotEqual => Ok(Self::NotEqual),
+            TokenType::LessThan => Ok(Self::LessThan),
+            TokenType::LessThanOrEqual => Ok(Self::LessThanOrEqual),
+            TokenType::GreaterThan => Ok(Self::GreaterThan),
+            TokenType::GreaterThanOrEqual => Ok(Self::GreaterThanOrEqual),
             _ => Err(anyhow!("Unsupported operator"))
         }
     }
@@ -52,8 +68,8 @@ pub enum AstNode {
     // Expressions
     BinaryOp {
         operator: Operator,
-        term: Box<Self>,      
-        next_term: Box<Self>,
+        expression: Box<Self>,      
+        next_expression: Box<Self>,
     },
     UnaryOp {
         operator: Operator,
@@ -137,8 +153,102 @@ impl AstNode {
     }
 
     fn parse_expression(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
-        // <exp> ::= <term> { ("+" | "-") <term> }
+        // <exp> ::= <logical-and-exp> { "||" <logical-and-exp> }
+        let mut logical_or_exp = Self::parse_logical_and_exp(token_iter)?;
+        
+        // keep parsing subsequent terms, wrapping each new one around old ones
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        while let Some(TokenType::OR) = next_token {
+            // advance the iterator (token = *next_token)
+            let token = Self::get_next_token_from_iter(token_iter)?;
 
+            let next_logical_or_exp = Self::parse_logical_and_exp(token_iter)?;
+            logical_or_exp = AstNode::BinaryOp{ 
+                operator: Operator::get_binary_op_from_token(token)?, 
+                expression: Box::new(logical_or_exp), 
+                next_expression: Box::new(next_logical_or_exp)
+            };
+
+            next_token = token_iter.peek();
+        }
+
+        Ok(logical_or_exp)
+    }
+
+    fn parse_logical_and_exp(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <logical-and-exp> ::= <equality-exp> { "&&" <equality-exp> }
+        let mut logical_and_exp = Self::parse_equality_exp(token_iter)?;
+        
+        // keep parsing subsequent terms, wrapping each new one around old ones
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        while let Some(TokenType::AND) = next_token {
+            // advance the iterator (token = *next_token)
+            let token = Self::get_next_token_from_iter(token_iter)?;
+
+            let next_logical_and_exp = Self::parse_equality_exp(token_iter)?;
+            logical_and_exp = AstNode::BinaryOp{ 
+                operator: Operator::get_binary_op_from_token(token)?, 
+                expression: Box::new(logical_and_exp), 
+                next_expression: Box::new(next_logical_and_exp)
+            };
+
+            next_token = token_iter.peek();
+        }
+
+        Ok(logical_and_exp)
+
+    }
+
+    fn parse_equality_exp(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
+        let mut equality_exp = Self::parse_relational_exp(token_iter)?;
+        
+        // keep parsing subsequent terms, wrapping each new one around old ones
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        while let Some(TokenType::Equal | TokenType::NotEqual) = next_token {
+            // advance the iterator (token = *next_token)
+            let token = Self::get_next_token_from_iter(token_iter)?;
+
+            let next_equality_exp = Self::parse_relational_exp(token_iter)?;
+            equality_exp = AstNode::BinaryOp{ 
+                operator: Operator::get_binary_op_from_token(token)?, 
+                expression: Box::new(equality_exp), 
+                next_expression: Box::new(next_equality_exp)
+            };
+
+            next_token = token_iter.peek();
+        }
+
+        Ok(equality_exp)
+    }
+
+    fn parse_relational_exp(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
+        let mut additive_exp = Self::parse_additive_exp(token_iter)?;
+        
+        // keep parsing subsequent terms, wrapping each new one around old ones
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        while let Some(
+            TokenType::LessThan | TokenType::GreaterThan | TokenType::LessThanOrEqual | TokenType::GreaterThanOrEqual
+        ) = next_token {
+            // advance the iterator (token = *next_token)
+            let token = Self::get_next_token_from_iter(token_iter)?;
+
+            let next_additive_exp = Self::parse_additive_exp(token_iter)?;
+            additive_exp = AstNode::BinaryOp{ 
+                operator: Operator::get_binary_op_from_token(token)?, 
+                expression: Box::new(additive_exp), 
+                next_expression: Box::new(next_additive_exp)
+            };
+
+            next_token = token_iter.peek();
+        }
+
+        Ok(additive_exp)
+    }
+
+    fn parse_additive_exp(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <additive_exp> ::= <term> { ("+" | "-") <term> }
         let mut term = Self::parse_term(token_iter)?;
 
         // keep parsing subsequent terms, wrapping each new one around old ones
@@ -150,8 +260,8 @@ impl AstNode {
             let next_term = Self::parse_term(token_iter)?;
             term = AstNode::BinaryOp{ 
                 operator: Operator::get_binary_op_from_token(token)?, 
-                term: Box::new(term), 
-                next_term: Box::new(next_term)
+                expression: Box::new(term), 
+                next_expression: Box::new(next_term)
             };
 
             next_token = token_iter.peek();
@@ -175,8 +285,8 @@ impl AstNode {
             let next_factor = Self::parse_factor(token_iter)?;
             factor = AstNode::BinaryOp{ 
                 operator: Operator::get_binary_op_from_token(token)?, 
-                term: Box::new(factor),
-                next_term: Box::new(next_factor),
+                expression: Box::new(factor),
+                next_expression: Box::new(next_factor),
             };
 
             next_token = token_iter.peek();
@@ -220,6 +330,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_and_or_equality() {
+        let token_vec = vec![
+            TokenType::IntLiteral(2), 
+            TokenType::Equal, 
+            TokenType::IntLiteral(2), 
+            TokenType::OR, 
+            TokenType::IntLiteral(0), 
+        ];
+        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter().peekable());
+        assert_eq!(
+            exp.unwrap(), 
+            AstNode::BinaryOp { 
+                operator: Operator::OR,
+                expression: Box::new(
+                    AstNode::BinaryOp { 
+                        operator: Operator::Equal, 
+                        expression: Box::new( AstNode::Constant { constant: 2 } ), 
+                        next_expression: Box::new( AstNode::Constant { constant: 2 }),
+                    }
+                ),
+                next_expression: Box::new(
+                    AstNode::Constant { constant: 0 }
+                ),
+            }
+        )
+    }
+
+    #[test]
+    fn test_parse_binary_op_and_or() {
+        let token_vec = vec![
+            TokenType::IntLiteral(1), 
+            TokenType::OR,
+            TokenType::IntLiteral(2),
+            TokenType::AND,
+            TokenType::IntLiteral(3)
+        ];
+        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter().peekable());
+        assert_eq!(
+            exp.unwrap(), 
+            AstNode::BinaryOp { 
+                operator: Operator::OR,
+                expression: Box::new(
+                    AstNode::Constant { constant: 1 }
+                ),
+                next_expression: Box::new(
+                    AstNode::BinaryOp { 
+                        operator: Operator::AND, 
+                        expression: Box::new( AstNode::Constant { constant: 2 } ), 
+                        next_expression: Box::new( AstNode::Constant { constant: 3 }),
+                    }
+                ),
+            }
+        )
+    }
+
+    #[test]
     fn test_parse_binary_op_subtraction() {
         let token_vec = vec![TokenType::IntLiteral(1), TokenType::Minus, TokenType::IntLiteral(2)];
         let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut token_vec.iter().peekable());
@@ -227,8 +393,8 @@ mod tests {
             exp.unwrap(), 
             AstNode::BinaryOp { 
                 operator: Operator::Subtraction, 
-                term: Box::new( AstNode::Constant { constant: 1 } ), 
-                next_term: Box::new( AstNode::Constant { constant: 2 }),
+                expression: Box::new( AstNode::Constant { constant: 1 } ), 
+                next_expression: Box::new( AstNode::Constant { constant: 2 }),
             },
         )
     }
@@ -241,8 +407,8 @@ mod tests {
             exp.unwrap(), 
             AstNode::BinaryOp { 
                 operator: Operator::Multiplication, 
-                term: Box::new( AstNode::Constant { constant: 1 } ), 
-                next_term: Box::new( AstNode::Constant { constant: 2 }),
+                expression: Box::new( AstNode::Constant { constant: 1 } ), 
+                next_expression: Box::new( AstNode::Constant { constant: 2 }),
             },
         )
     }
@@ -262,12 +428,12 @@ mod tests {
             exp.unwrap(), 
             AstNode::BinaryOp { 
                 operator: Operator::Addition, 
-                term: Box::new( AstNode::Constant { constant: 1 } ), 
-                next_term: Box::new( 
+                expression: Box::new( AstNode::Constant { constant: 1 } ), 
+                next_expression: Box::new( 
                     AstNode::BinaryOp { 
                         operator: Operator::Multiplication,
-                        term: Box::new( AstNode::Constant { constant: 2 }),
-                        next_term: Box::new( AstNode::Constant { constant: 3 }),
+                        expression: Box::new( AstNode::Constant { constant: 2 }),
+                        next_expression: Box::new( AstNode::Constant { constant: 3 }),
                     }
                 ),
             },
@@ -291,14 +457,14 @@ mod tests {
             exp.unwrap(), 
             AstNode::BinaryOp { 
                 operator: Operator::Multiplication, 
-                term: Box::new(
+                expression: Box::new(
                     AstNode::BinaryOp { 
                         operator: Operator::Addition,
-                        term: Box::new( AstNode::Constant { constant: 1 }),
-                        next_term: Box::new( AstNode::Constant { constant: 2 }),
+                        expression: Box::new( AstNode::Constant { constant: 1 }),
+                        next_expression: Box::new( AstNode::Constant { constant: 2 }),
                     }
                 ),
-                next_term: Box::new( AstNode::Constant { constant: 3 } ),
+                next_expression: Box::new( AstNode::Constant { constant: 3 } ),
             },
         )
     }

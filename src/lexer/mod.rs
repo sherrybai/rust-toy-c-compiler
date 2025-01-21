@@ -16,12 +16,22 @@ pub enum TokenType {
     Keyword(String),
     Identifier(String),
     IntLiteral(u32),
+    Addition,
+    Multiplication,
+    Division,
+    AND,
+    OR,
+    Equal,
+    // != has to be before ! for regex to match
+    NotEqual,
+    LessThanOrEqual,
+    LessThan,
+    // >= has to be before > for regex to match
+    GreaterThanOrEqual,
+    GreaterThan,
     Minus,
     BitwiseComplement,
     LogicalNegation,
-    Addition,
-    Multiplication,
-    Division
 }
 
 impl TokenType {
@@ -74,6 +84,14 @@ impl TokenType {
             Self::Addition => r"\+",
             Self::Multiplication => r"\*",
             Self::Division => r"\/",
+            Self::AND => r"&&",
+            Self::OR => r"\|\|",
+            Self::Equal => r"==",
+            Self::NotEqual => r"\!=",
+            Self::LessThan => r"<",
+            Self::LessThanOrEqual => r"<=",
+            Self::GreaterThan => r">",
+            Self::GreaterThanOrEqual => r">=",
         }
     }
 
@@ -134,6 +152,31 @@ mod tests {
             TokenType::Addition,
             TokenType::Multiplication,
             TokenType::Division,
+        ];
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_lex_stage_4_binary_ops() {
+        let contents = "
+            &&
+            ||
+            ==
+            !=
+            <
+            <=
+            >
+            >=
+        ";
+        let expected = vec![
+            TokenType::AND,
+            TokenType::OR,
+            TokenType::Equal,
+            TokenType::NotEqual,
+            TokenType::LessThan,
+            TokenType::LessThanOrEqual,
+            TokenType::GreaterThan,
+            TokenType::GreaterThanOrEqual
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }

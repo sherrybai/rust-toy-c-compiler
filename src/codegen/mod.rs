@@ -124,7 +124,7 @@ impl Codegen {
                     }
                 }
             },
-            AstNode::BinaryOp { operator, term, next_term } => {
+            AstNode::BinaryOp { operator, expression: term, next_expression: next_term } => {
                 let nested_term_1 = self.generate_expression(*term)?;
                 let nested_term_2 = self.generate_expression(*next_term)?;
 
@@ -259,7 +259,7 @@ mod tests {
     fn test_binary_op() {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
-        let expression = Box::new(AstNode::BinaryOp { operator: Operator::Addition, term: constant_1, next_term: constant_2 });
+        let expression = Box::new(AstNode::BinaryOp { operator: Operator::Addition, expression: constant_1, next_expression: constant_2 });
         let statement = Box::new(AstNode::Statement {expression});
         let function = Box::new(AstNode::Function {identifier: "main".into(), statement});
         let program = AstNode::Program{function};

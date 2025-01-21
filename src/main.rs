@@ -10,7 +10,7 @@ use clap::Parser;
 
 use crate::lexer::TokenType;
 use crate::parser::AstNode;
-use crate::codegen::codegen;
+use crate::codegen::Codegen;
 
 
 #[derive(Parser, Debug)]
@@ -45,7 +45,9 @@ fn main() -> anyhow::Result<()> {
     };
     let lexed: Vec<TokenType> = TokenType::lex(&contents[..])?;
     let parsed: AstNode = AstNode::parse(&lexed[..])?;
-    let generated: String = codegen(parsed)?;
+
+    let mut codegen = Codegen::new();
+    let generated: String = codegen.codegen(parsed)?;
     
     let output_filename = get_output_filename(&args.filename[..])?;
     fs::write(output_filename, generated).expect("Unable to write file");

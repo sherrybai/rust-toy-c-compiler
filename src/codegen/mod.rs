@@ -140,11 +140,22 @@ impl Codegen {
 
                 // operation, term 1, term 2
                 match operator {
-                    Operator::Addition => {},
-                    Operator::Subtraction => {},
-                    Operator::Multiplication => {},
-                    Operator::Division => {},
-                    _ => {}
+                    Operator::Addition => {
+                        result.push_str(&Self::format_instruction("add", vec!["w0", "w1", "w0"]));
+                    },
+                    Operator::Subtraction => {
+                        result.push_str(&Self::format_instruction("sub", vec!["w0", "w1", "w0"]));
+                    },
+                    Operator::Multiplication => {
+                        result.push_str(&Self::format_instruction("mul", vec!["w0", "w1", "w0"]));
+
+                    },
+                    Operator::Division => {
+                        result.push_str(&Self::format_instruction("sdiv", vec!["w0", "w1", "w0"]));
+                    },
+                    _ => {
+                        return Err(anyhow!("Not a binary operator"));
+                    }
                 }
             }
             _ => {
@@ -265,6 +276,7 @@ mod tests {
                     mov	w0, #2
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
+                    add	w0, w1, w0
                     ret
             "
         )

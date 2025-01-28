@@ -17,15 +17,17 @@ impl Codegen {
     }
 
     pub fn codegen(&mut self, ast: AstNode) -> anyhow::Result<String> {
-        let AstNode::Program{function} = ast else {
+        let AstNode::Program { function_list }  = ast else {
             return Err(anyhow!("Called codegen on node that is not a program"))
         };
 
         let mut result = String::new();
 
         // traverse the AST
-        let generated_func = self.generate_function(*function)?;
-        result.push_str(&generated_func);
+        // for function in function_list.iter() {
+        //     let generated_func = self.generate_function(*function)?;
+        //     result.push_str(&generated_func);
+        // }
 
         Ok(result)
     }
@@ -243,7 +245,7 @@ mod tests {
         let expression = Box::new(AstNode::Constant { constant: 2 });
         let statement = Box::new(AstNode::Statement {expression});
         let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
-        let program = AstNode::Program{function};
+        let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
@@ -262,8 +264,8 @@ mod tests {
         let constant = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::UnaryOp { operator: Operator::BitwiseComplement, factor: constant });
         let statement = Box::new(AstNode::Statement {expression});
-        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
-        let program = AstNode::Program{function};
+        let function = Box::new(AstNode::Function { function_name: "main".into(), parameters: vec![], statement });
+        let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
@@ -328,7 +330,7 @@ mod tests {
         let expression = Box::new(AstNode::BinaryOp { operator: Operator::Addition, expression: constant_1, next_expression: constant_2 });
         let statement = Box::new(AstNode::Statement {expression});
         let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
-        let program = AstNode::Program{function};
+        let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen: Codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
@@ -355,7 +357,7 @@ mod tests {
         let expression = Box::new(AstNode::BinaryOp { operator: Operator::AND, expression: constant_1, next_expression: constant_2 });
         let statement = Box::new(AstNode::Statement {expression});
         let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
-        let program = AstNode::Program{function};
+        let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen: Codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();

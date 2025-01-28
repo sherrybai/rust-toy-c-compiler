@@ -56,7 +56,7 @@ impl Operator {
 #[derive(Debug, PartialEq)]
 pub enum AstNode {
     Program {
-        function: Box<Self>,
+        function_list: Vec<Box<Self>>,
     },
     Function {
         function_name: String,
@@ -87,9 +87,21 @@ pub enum AstNode {
 
 impl AstNode {
     pub fn parse(tokens: &[TokenType]) -> anyhow::Result<Self> {
+        // <program> ::= { <function> }
         let mut token_iter = tokens.iter().peekable();
-        let function: Self = Self::parse_function(&mut token_iter)?;
-        Ok(Self::Program{ function: Box::new(function) })
+        let mut function_list: Vec<Box<Self>> = Vec::new();
+        loop {
+            let next_token: Option<&&TokenType> = token_iter.peek();
+            match next_token {
+                Some(_) => {
+                    let function: Self = Self::parse_function(&mut token_iter)?;
+                    function_list.push(Box::new(function));
+                }
+                None => {
+                    return Ok(Self::Program{ function_list })
+                }
+            }
+        }
     }
 
     fn parse_function(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
@@ -382,6 +394,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_function_call() {
+        let token_vec = vec![
+            TokenType::Identifier("main".into()),
+            TokenType::OpenParens,
+            TokenType::IntLiteral(1),
+            TokenType::Comma,
+            TokenType::IntLiteral(2),
+            TokenType::Comma,
+            TokenType::IntLiteral(3),
+            TokenType::ClosedParens,
+        ];
+        let function: anyhow::Result<AstNode> = AstNode::parse_factor(&mut token_vec.iter().peekable());
+        assert_eq!(
+            function.unwrap(), 
+            AstNode::FunctionCall {
+                function_name: "main".into(), 
+                parameters: vec![
+                    Box::new(AstNode::Constant { constant: 1 }),
+                    Box::new(AstNode::Constant { constant: 2 }),
+                    Box::new(AstNode::Constant { constant: 3 }),
+                ], 
+            }
+        );
+    }
+
+    #[test]
     fn test_parse_and_or_equality() {
         let token_vec = vec![
             TokenType::IntLiteral(2), 
@@ -603,27 +641,67 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_function_call() {
+    fn test_parse_program_multiple_func() {
         let token_vec = vec![
+            // first function
+            TokenType::Keyword("int".into()),
+            TokenType::Identifier("helper".into()),
+            TokenType::OpenParens,
+            TokenType::Identifier("param1".into()),
+            TokenType::Identifier("param2".into()),
+            TokenType::Identifier("param3".into()),
+            TokenType::ClosedParens,
+            TokenType::OpenBrace,
+            TokenType::Keyword("return".into()), 
+            TokenType::IntLiteral(1), TokenType::Semicolon,
+            TokenType::ClosedBrace,
+            // main function        
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
             TokenType::OpenParens,
-            TokenType::IntLiteral(1),
-            TokenType::Comma,
-            TokenType::IntLiteral(2),
-            TokenType::Comma,
-            TokenType::IntLiteral(3),
             TokenType::ClosedParens,
+            TokenType::OpenBrace,
+            TokenType::Keyword("return".into()), 
+            TokenType::IntLiteral(2), TokenType::Semicolon,
+            TokenType::ClosedBrace
         ];
-        let function: anyhow::Result<AstNode> = AstNode::parse_factor(&mut token_vec.iter().peekable());
+
+        let program: anyhow::Result<AstNode> = AstNode::parse(&token_vec);
         assert_eq!(
-            function.unwrap(), 
-            AstNode::FunctionCall {
-                function_name: "main".into(), 
-                parameters: vec![
-                    Box::new(AstNode::Constant { constant: 1 }),
-                    Box::new(AstNode::Constant { constant: 2 }),
-                    Box::new(AstNode::Constant { constant: 3 }),
-                ], 
+            program.unwrap(), 
+            AstNode::Program { 
+                function_list: vec![
+                    Box::new(
+                        AstNode::Function { 
+                            function_name: "helper".into(), 
+                            parameters: vec![
+                                "param1".into(),
+                                "param2".into(),
+                                "param3".into(),
+                            ], 
+                            statement: Box::new(
+                                AstNode::Statement { 
+                                    expression: Box::new(
+                                        AstNode::Constant{ constant: 1 }
+                                    ),
+                                },
+                            ),
+                        }
+                    ),
+                    Box::new(
+                        AstNode::Function { 
+                            function_name: "main".into(), 
+                            parameters: vec![], 
+                            statement: Box::new(
+                                AstNode::Statement { 
+                                    expression: Box::new(
+                                        AstNode::Constant{ constant: 2 }
+                                    ),
+                                },
+                            ),
+                        }
+                    ),
+                ]
             }
         );
     }

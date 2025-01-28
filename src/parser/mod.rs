@@ -78,6 +78,10 @@ pub enum AstNode {
     },
     Constant {
         constant: u32,
+    },
+    FunctionCall {
+        function_name: String,
+        parameters: Vec<Box<Self>>,
     }
 }
 
@@ -274,7 +278,7 @@ impl AstNode {
             term = AstNode::BinaryOp{ 
                 operator: Operator::get_binary_op_from_token(token)?, 
                 expression: Box::new(term), 
-                next_expression: Box::new(next_term)
+                next_expression: Box::new(next_term),
             };
 
             next_token = token_iter.peek();
@@ -310,11 +314,46 @@ impl AstNode {
 
     fn parse_factor(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
         // factor: operand of multiplication/division
-        // <factor> ::= "(" <exp> ")" | <unary_op> <factor> | <int>
+        // <factor> ::= <function-call> | "(" <exp> ")" | <unary_op> <factor> | <int>
 
         let token = Self::get_next_token_from_iter(token_iter)?;
 
         match token {
+            TokenType::Identifier(function_name) => {
+                let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? else {
+                    return Err(anyhow!("Function call missing open parens"))
+                };
+
+                // parse list of expression params
+                let mut parameters: Vec<Box<Self>> = Vec::new();
+
+                let next_token: Option<&&TokenType> = token_iter.peek();
+                if let Some(TokenType::ClosedParens) = next_token {
+                    // do nothing
+                } else {
+                    // parse at least one param
+                    let exp = Self::parse_expression(token_iter)?;
+                    parameters.push(Box::new(exp));
+                    loop {
+                        let next_token: Option<&&TokenType> = token_iter.peek();
+                        if let Some(TokenType::ClosedParens) = next_token {
+                            break;
+                        }
+                        // parse comma if expression list isn't over
+                        let TokenType::Comma = Self::get_next_token_from_iter(token_iter)? else {
+                            return Err(anyhow!("Function call params must be delineated with commas"))
+                        };
+                        // parse next expression
+                        let exp = Self::parse_expression(token_iter)?;
+                        parameters.push(Box::new(exp));
+                    }
+                    let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
+                        // this should not happen: loop breaks once closed parens is found
+                        return Err(anyhow!("Function call missing closed parens"))
+                    };
+                }
+                Ok(Self::FunctionCall { function_name: function_name.clone(), parameters })
+            }
             TokenType::OpenParens => {
                 let expression = Self::parse_expression(token_iter)?;
                 let closed_parens = Self::get_next_token_from_iter(token_iter)?;
@@ -559,6 +598,32 @@ mod tests {
                     "param3".into()
                 ], 
                 statement 
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let token_vec = vec![
+            TokenType::Identifier("main".into()),
+            TokenType::OpenParens,
+            TokenType::IntLiteral(1),
+            TokenType::Comma,
+            TokenType::IntLiteral(2),
+            TokenType::Comma,
+            TokenType::IntLiteral(3),
+            TokenType::ClosedParens,
+        ];
+        let function: anyhow::Result<AstNode> = AstNode::parse_factor(&mut token_vec.iter().peekable());
+        assert_eq!(
+            function.unwrap(), 
+            AstNode::FunctionCall {
+                function_name: "main".into(), 
+                parameters: vec![
+                    Box::new(AstNode::Constant { constant: 1 }),
+                    Box::new(AstNode::Constant { constant: 2 }),
+                    Box::new(AstNode::Constant { constant: 3 }),
+                ], 
             }
         );
     }

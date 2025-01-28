@@ -59,7 +59,8 @@ pub enum AstNode {
         function: Box<Self>,
     },
     Function {
-        identifier: String,
+        function_name: String,
+        parameters: Vec<String>,
         statement: Box<Self>,
     },
     Statement {
@@ -88,6 +89,8 @@ impl AstNode {
     }
 
     fn parse_function(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <function> ::= "int" <id> "(" [ "int" <id> { "," "int" <id> } ] ")" ( "{" { <block-item> } "}" | ";" )
+
         // parse keyword token
         if let TokenType::Keyword(s) = Self::get_next_token_from_iter(token_iter)? {
             if s != "int"  {
@@ -98,18 +101,28 @@ impl AstNode {
             return Err(anyhow!("First token of function is not a keyword"));
         }
 
-        // Parse identifier
-        let identifier: String;
+        // Parse function name
+        let function_name: String;
         if let TokenType::Identifier(s) = Self::get_next_token_from_iter(token_iter)? {
-            identifier = s.to_string();
+            function_name = s.to_string();
         } else {
             return Err(anyhow!("No function identifier found"));
         }
 
-        // () after identifier
         let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? else {
             return Err(anyhow!("No open parens"));
         };
+
+        // parse parameters
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        let mut parameters: Vec<String> = Vec::new();
+        while let Some(TokenType::Identifier(param)) = next_token {
+            // advance the iterator
+            Self::get_next_token_from_iter(token_iter)?;
+            parameters.push(param.clone());
+            next_token = token_iter.peek();
+        }
+
         let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
             return Err(anyhow!("No closed parens"));
         };
@@ -126,7 +139,7 @@ impl AstNode {
         }; 
 
         // return node
-        Ok(Self::Function { identifier, statement: Box::new(statement) })
+        Ok(Self::Function { function_name, parameters, statement: Box::new(statement) })
 
     }
 
@@ -524,6 +537,9 @@ mod tests {
             TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
             TokenType::OpenParens,
+            TokenType::Identifier("param1".into()),
+            TokenType::Identifier("param2".into()),
+            TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::OpenBrace,
             TokenType::Keyword("return".into()), 
@@ -533,6 +549,17 @@ mod tests {
         let function: anyhow::Result<AstNode> = AstNode::parse_function(&mut token_vec.iter().peekable());
         let expression = Box::new(AstNode::Constant { constant: 2 });
         let statement = Box::new(AstNode::Statement {expression});
-        assert_eq!(function.unwrap(), AstNode::Function { identifier: "main".into(), statement });
+        assert_eq!(
+            function.unwrap(), 
+            AstNode::Function { 
+                function_name: "main".into(), 
+                parameters: vec![
+                    "param1".into(), 
+                    "param2".into(), 
+                    "param3".into()
+                ], 
+                statement 
+            }
+        );
     }
 }

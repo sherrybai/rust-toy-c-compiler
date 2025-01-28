@@ -61,7 +61,7 @@ pub enum AstNode {
     Function {
         function_name: String,
         parameters: Vec<String>,
-        statement: Box<Self>,
+        statement: Option<Box<Self>>,
     },
     Statement {
         expression: Box<Self>,
@@ -143,19 +143,28 @@ impl AstNode {
             return Err(anyhow!("No closed parens"));
         };
 
-        // {
-        let TokenType::OpenBrace = Self::get_next_token_from_iter(token_iter)? else {
-            return Err(anyhow!("No open brace"));
-        };
+        let next_token = Self::get_next_token_from_iter(token_iter)?;
+        match next_token {
+            TokenType::Semicolon => {
+                // function declaration
+                return Ok(Self::Function { function_name, parameters, statement: None })
+            },
+            TokenType::OpenBrace => {
+                // do nothing
+            },
+            _ => {
+                return Err(anyhow!("No semicolon or open brace following function parameters"));
+            }
+        }
         // parse statement
         let statement = Self::parse_statement(token_iter)?;
-        // }
+        // terminate function body with closed brace
         let TokenType::ClosedBrace = Self::get_next_token_from_iter(token_iter)? else {
-            return Err(anyhow!("No closed brace"));
+            return Err(anyhow!("No closed brace after function body"));
         }; 
 
         // return node
-        Ok(Self::Function { function_name, parameters, statement: Box::new(statement) })
+        Ok(Self::Function { function_name, parameters, statement: Some(Box::new(statement)) })
 
     }
 
@@ -635,7 +644,7 @@ mod tests {
                     "param2".into(), 
                     "param3".into()
                 ], 
-                statement 
+                statement: Some(statement)
             }
         );
     }
@@ -643,7 +652,7 @@ mod tests {
     #[test]
     fn test_parse_program_multiple_func() {
         let token_vec = vec![
-            // first function
+            // first function declaration
             TokenType::Keyword("int".into()),
             TokenType::Identifier("helper".into()),
             TokenType::OpenParens,
@@ -651,11 +660,8 @@ mod tests {
             TokenType::Identifier("param2".into()),
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
-            TokenType::OpenBrace,
-            TokenType::Keyword("return".into()), 
-            TokenType::IntLiteral(1), TokenType::Semicolon,
-            TokenType::ClosedBrace,
-            // main function        
+            TokenType::Semicolon,
+            // main function definition    
             TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
             TokenType::OpenParens,
@@ -679,26 +685,22 @@ mod tests {
                                 "param2".into(),
                                 "param3".into(),
                             ], 
-                            statement: Box::new(
-                                AstNode::Statement { 
-                                    expression: Box::new(
-                                        AstNode::Constant{ constant: 1 }
-                                    ),
-                                },
-                            ),
+                            statement: None,
                         }
                     ),
                     Box::new(
                         AstNode::Function { 
                             function_name: "main".into(), 
                             parameters: vec![], 
-                            statement: Box::new(
-                                AstNode::Statement { 
-                                    expression: Box::new(
-                                        AstNode::Constant{ constant: 2 }
-                                    ),
-                                },
-                            ),
+                            statement: Some(
+                                Box::new(
+                                    AstNode::Statement { 
+                                        expression: Box::new(
+                                            AstNode::Constant{ constant: 2 }
+                                        ),
+                                    },
+                                ),
+                            )
                         }
                     ),
                 ]

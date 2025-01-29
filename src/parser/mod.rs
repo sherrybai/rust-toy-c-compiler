@@ -88,6 +88,9 @@ pub enum AstNode {
     Constant {
         constant: u32,
     },
+    Variable {
+        variable: String,
+    },
     FunctionCall {
         function_name: String,
         parameters: Vec<Box<Self>>,
@@ -394,45 +397,50 @@ impl AstNode {
 
     fn parse_factor(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // factor: operand of multiplication/division
-        // <factor> ::= <function-call> | "(" <exp> ")" | <unary_op> <factor> | <int>
-
+        // <factor> ::= <function-call> | "(" <exp> ")" | <unary_op> <factor> | <int> | <id>
         let token = Self::get_next_token_from_iter(token_iter)?;
 
         match token {
-            TokenType::Identifier(function_name) => {
-                let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? else {
-                    return Err(anyhow!("Function call missing open parens"))
-                };
+            TokenType::Identifier(identifier) => {
+                let next_token = token_iter.peek();
+                // function call
+                if let Some(TokenType::OpenParens) = next_token {
+                    // advance iterator past '('
+                    Self::get_next_token_from_iter(token_iter)?;
 
-                // parse list of expression params
-                let mut parameters: Vec<Box<Self>> = Vec::new();
+                    // parse list of expression params
+                    let mut parameters: Vec<Box<Self>> = Vec::new();
 
-                let next_token: Option<&&TokenType> = token_iter.peek();
-                if let Some(TokenType::ClosedParens) = next_token {
-                    // do nothing
-                } else {
-                    // parse at least one param
-                    let exp = Self::parse_expression(token_iter)?;
-                    parameters.push(Box::new(exp));
-                    loop {
-                        let next_token: Option<&&TokenType> = token_iter.peek();
-                        if let Some(TokenType::ClosedParens) = next_token {
-                            break;
-                        }
-                        // parse comma if expression list isn't over
-                        let TokenType::Comma = Self::get_next_token_from_iter(token_iter)? else {
-                            return Err(anyhow!("Function call params must be delineated with commas"))
-                        };
-                        // parse next expression
+                    let next_token: Option<&&TokenType> = token_iter.peek();
+                    if let Some(TokenType::ClosedParens) = next_token {
+                        // do nothing
+                    } else {
+                        // parse at least one param
                         let exp = Self::parse_expression(token_iter)?;
                         parameters.push(Box::new(exp));
+                        loop {
+                            let next_token: Option<&&TokenType> = token_iter.peek();
+                            if let Some(TokenType::ClosedParens) = next_token {
+                                break;
+                            }
+                            // parse comma if expression list isn't over
+                            let TokenType::Comma = Self::get_next_token_from_iter(token_iter)? else {
+                                return Err(anyhow!("Function call params must be delineated with commas"))
+                            };
+                            // parse next expression
+                            let exp = Self::parse_expression(token_iter)?;
+                            parameters.push(Box::new(exp));
+                        }
+                        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
+                            // this should not happen: loop breaks once closed parens is found
+                            return Err(anyhow!("Function call missing closed parens"))
+                        };
                     }
-                    let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
-                        // this should not happen: loop breaks once closed parens is found
-                        return Err(anyhow!("Function call missing closed parens"))
-                    };
+                    Ok(Self::FunctionCall { function_name: identifier.clone(), parameters })
+                } else {
+                    // factor can be local variable
+                    Ok(Self::Variable { variable: identifier.clone() })
                 }
-                Ok(Self::FunctionCall { function_name: function_name.clone(), parameters })
             }
             TokenType::OpenParens => {
                 let expression = Self::parse_expression(token_iter)?;
@@ -665,6 +673,13 @@ mod tests {
         let token_vec = vec![TokenType::IntLiteral(2)];
         let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(exp.unwrap(), AstNode::Constant{constant: 2});
+    }
+
+    #[test]
+    fn test_parse_local_variable() {
+        let token_vec = vec![TokenType::Identifier("a".into())];
+        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        assert_eq!(exp.unwrap(), AstNode::Variable{variable: "a".into()});
     }
 
     #[test]

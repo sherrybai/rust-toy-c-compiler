@@ -76,13 +76,12 @@ impl Codegen {
         };
 
         let mut result: String = String::new();
-
-        result.push_str(&format!("{}.globl _{}\n", INDENT, function_name));
-        result.push_str(&format!("_{}:\n", function_name));
-
-        // generate statement
-        // TODO: fix handling of Some(...)
         if let Some(s) = statement {
+            // only generate assembly for function node if it is a definition 
+            // (non-null function body)
+            result.push_str(&format!("{}.globl _{}\n", INDENT, function_name));
+            result.push_str(&format!("_{}:\n", function_name));
+
             let generated_statement = self.generate_statement(s)?;
             result.push_str(&generated_statement);
         }
@@ -260,6 +259,17 @@ mod tests {
                     ret
             "
         )
+    }
+
+    #[test]
+    fn test_function_declaration() {
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement: None});
+        let program = AstNode::Program { function_list: vec![function] } ;
+
+        let mut codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        // function declaration does not result in generated assembly
+        assert_str_trim_eq!(result, "")
     }
 
     #[test]

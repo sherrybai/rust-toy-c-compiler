@@ -24,7 +24,7 @@ impl Validation {
             let AstNode::Function { 
                 ref function_name, 
                 ref parameters, 
-                ref statement 
+                statement_list: ref statement 
             } = **function else {
                 return Err(anyhow!("Program function list contains non-function"));
             };
@@ -40,29 +40,31 @@ impl Validation {
                     }
                     self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
                 },
-                Some(statement_node) => {
-                    // function definition
-                    // cannot have two function definitions
-                    if self.function_is_defined.contains(function_name) {
-                        return Err(anyhow!("Found duplicate function definitions"));
-                    }
-                    if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
-                        // cannot have definition with different number of params as declaration
-                        if parameters.len() != *param_count {
-                            return Err(anyhow!("Defined and declared functions have different number of arguments"));
+                Some(statement_list) => {
+                    for statement_node in statement_list {
+                        // function definition
+                        // cannot have two function definitions
+                        if self.function_is_defined.contains(function_name) {
+                            return Err(anyhow!("Found duplicate function definitions"));
                         }
-                    } else {
-                        // function declared and defined at the same time
-                        self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
+                        if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
+                            // cannot have definition with different number of params as declaration
+                            if parameters.len() != *param_count {
+                                return Err(anyhow!("Defined and declared functions have different number of arguments"));
+                            }
+                        } else {
+                            // function declared and defined at the same time
+                            self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
+                        }
+
+                        self.function_is_defined.insert(function_name.clone());
+
+                        // traverse function to validate expressions
+                        let AstNode::Return{ ref expression } = **statement_node else {
+                            return Err(anyhow!("Function contains non-statement"));
+                        };
+                        self.validate_expression(expression)?;
                     }
-
-                    self.function_is_defined.insert(function_name.clone());
-
-                    // traverse function to validate expressions
-                    let AstNode::Return{ ref expression } = **statement_node else {
-                        return Err(anyhow!("Function contains non-statement"));
-                    };
-                    self.validate_expression(expression)?;
                 }
             }
         }
@@ -113,8 +115,8 @@ mod tests {
     #[test]
     fn test_valid_main() {
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement = Some(Box::new(AstNode::Return {expression}));
-        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
+        let statement = Box::new(AstNode::Return {expression});
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![statement])});
         let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut validation = Validation::new();
@@ -127,20 +129,20 @@ mod tests {
         let function_1 = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec![], 
-            statement: Some(
+            statement_list: Some(vec![
                 Box::new(AstNode::Return { 
                     expression: Box::new(AstNode::Constant { constant: 1 }),
                 })
-            ),
+            ]),
         });
         let function_2 = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec![], 
-            statement: Some(
+            statement_list: Some(vec![
                 Box::new(AstNode::Return { 
                     expression: Box::new(AstNode::Constant { constant: 2 }),
                 })
-            ),
+            ]),
         });
         let program = AstNode::Program { function_list: vec![function_1, function_2] } ;
 
@@ -154,12 +156,12 @@ mod tests {
         let declaration_1 = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec!["a".into(), "b".into()], 
-            statement: None,
+            statement_list: None,
         });
         let declaration_2 = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec!["a".into()], 
-            statement: None,
+            statement_list: None,
         });
         let program = AstNode::Program { function_list: vec![declaration_1, declaration_2] } ;
 
@@ -173,16 +175,16 @@ mod tests {
         let declaration = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec!["a".into(), "b".into()], 
-            statement: None,
+            statement_list: None,
         });
         let definition = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec![], 
-            statement: Some(
+            statement_list: Some(vec![
                 Box::new(AstNode::Return { 
                     expression: Box::new(AstNode::Constant { constant: 2 }),
                 })
-            ),
+            ]),
         });
         let program = AstNode::Program { function_list: vec![declaration, definition] } ;
 
@@ -196,18 +198,18 @@ mod tests {
         let function_1 = Box::new(AstNode::Function {
             function_name: "helper".into(), 
             parameters: vec![], 
-            statement: None,
+            statement_list: None,
         });
         let function_2 = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec![], 
-            statement: Some(
+            statement_list: Some(vec![
                 Box::new(AstNode::Return { 
                     expression: Box::new(AstNode::FunctionCall { 
                         function_name: "helper".into(), parameters: vec![], 
                     })
                 }),
-            ),
+            ]),
         });
         // helper function declared after main
         let program = AstNode::Program { function_list: vec![function_2, function_1] } ;
@@ -221,18 +223,18 @@ mod tests {
         let function_1 = Box::new(AstNode::Function {
             function_name: "helper".into(), 
             parameters: vec!["a".into(), "b".into()], 
-            statement: None,
+            statement_list: None,
         });
         let function_2 = Box::new(AstNode::Function {
             function_name: "main".into(), 
             parameters: vec![], 
-            statement: Some(
+            statement_list: Some(vec![
                 Box::new(AstNode::Return { 
                     expression: Box::new(AstNode::FunctionCall { 
                         function_name: "helper".into(), parameters: vec![], 
                     })
                 }),
-            ),
+            ]),
         });
         let program = AstNode::Program { function_list: vec![function_1, function_2] } ;
 

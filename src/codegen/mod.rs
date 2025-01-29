@@ -70,20 +70,22 @@ impl Codegen {
         let AstNode::Function{
             function_name,
             parameters,
-            statement,
+            statement_list,
         } = node else {
             return Err(anyhow!("Called generate_function on node that is not a function"))
         };
 
         let mut result: String = String::new();
-        if let Some(s) = statement {
+        if let Some(s) = statement_list {
             // only generate assembly for function node if it is a definition 
             // (non-null function body)
             result.push_str(&format!("{}.globl _{}\n", INDENT, function_name));
             result.push_str(&format!("_{}:\n", function_name));
 
-            let generated_statement = self.generate_statement(s)?;
-            result.push_str(&generated_statement);
+            for statement in s {
+                let generated_statement = self.generate_statement(statement)?;
+                result.push_str(&generated_statement);
+            }
         }
 
         Ok(result)
@@ -245,8 +247,8 @@ mod tests {
     #[test]
     fn test_codegen() {
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement = Some(Box::new(AstNode::Return {expression}));
-        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
+        let statement = Box::new(AstNode::Return {expression});
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![statement])});
         let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen = Codegen::new();
@@ -263,7 +265,7 @@ mod tests {
 
     #[test]
     fn test_function_declaration() {
-        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement: None});
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: None});
         let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen = Codegen::new();
@@ -276,8 +278,8 @@ mod tests {
     fn test_unary_op() {
         let constant = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::UnaryOp { operator: Operator::BitwiseComplement, factor: constant });
-        let statement = Some(Box::new(AstNode::Return {expression}));
-        let function = Box::new(AstNode::Function { function_name: "main".into(), parameters: vec![], statement });
+        let statement = Box::new(AstNode::Return {expression});
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![statement])});
         let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen = Codegen::new();
@@ -341,8 +343,8 @@ mod tests {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::BinaryOp { operator: Operator::Addition, expression: constant_1, next_expression: constant_2 });
-        let statement = Some(Box::new(AstNode::Return {expression}));
-        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
+        let statement = Box::new(AstNode::Return {expression});
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![statement])});
         let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen: Codegen = Codegen::new();
@@ -368,8 +370,8 @@ mod tests {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::BinaryOp { operator: Operator::AND, expression: constant_1, next_expression: constant_2 });
-        let statement = Some(Box::new(AstNode::Return {expression}));
-        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
+        let statement = Box::new(AstNode::Return {expression});
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![statement])});
         let program = AstNode::Program { function_list: vec![function] } ;
 
         let mut codegen: Codegen = Codegen::new();

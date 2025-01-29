@@ -62,7 +62,7 @@ pub enum AstNode {
     Function {
         function_name: String,
         parameters: Vec<String>,
-        statement: Option<Box<Self>>,
+        statement_list: Option<Vec<Box<Self>>>,
     },
     Return {
         expression: Box<Self>,
@@ -159,7 +159,7 @@ impl AstNode {
         match next_token {
             TokenType::Semicolon => {
                 // function declaration
-                return Ok(Self::Function { function_name, parameters, statement: None })
+                return Ok(Self::Function { function_name, parameters, statement_list: None })
             },
             TokenType::OpenBrace => {
                 // do nothing
@@ -168,15 +168,21 @@ impl AstNode {
                 return Err(anyhow!("No semicolon or open brace following function parameters"));
             }
         }
-        // parse statement
-        let statement = Self::parse_statement(token_iter)?;
-        // terminate function body with closed brace
-        let TokenType::ClosedBrace = Self::get_next_token_from_iter(token_iter)? else {
-            return Err(anyhow!("No closed brace after function body"));
-        }; 
-
+        // parse statements
+        let mut statements = Vec::new();
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        loop {
+            if let Some(TokenType::ClosedBrace) = next_token {  // terminate function body with closed brace
+                Self::get_next_token_from_iter(token_iter)?;
+                break
+            } else {
+                let statement = Self::parse_statement(token_iter)?;
+                statements.push(Box::new(statement));
+            }; 
+            next_token = token_iter.peek();
+        }
         // return node
-        Ok(Self::Function { function_name, parameters, statement: Some(Box::new(statement)) })
+        Ok(Self::Function { function_name, parameters, statement_list: Some(statements) })
 
     }
 
@@ -725,7 +731,7 @@ mod tests {
                     "param2".into(), 
                     "param3".into()
                 ], 
-                statement: Some(statement)
+                statement_list: Some(vec![statement])
             }
         );
     }
@@ -766,21 +772,23 @@ mod tests {
                                 "param2".into(),
                                 "param3".into(),
                             ], 
-                            statement: None,
+                            statement_list: None,
                         }
                     ),
                     Box::new(
                         AstNode::Function { 
                             function_name: "main".into(), 
                             parameters: vec![], 
-                            statement: Some(
-                                Box::new(
-                                    AstNode::Return { 
-                                        expression: Box::new(
-                                            AstNode::Constant{ constant: 2 }
-                                        ),
-                                    },
-                                ),
+                            statement_list: Some(
+                                vec![
+                                    Box::new(
+                                        AstNode::Return { 
+                                            expression: Box::new(
+                                                AstNode::Constant{ constant: 2 }
+                                            ),
+                                        },
+                                    ),
+                                ],
                             )
                         }
                     ),

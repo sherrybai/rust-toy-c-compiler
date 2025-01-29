@@ -74,6 +74,16 @@ impl Codegen {
         // use stack offset bytes to find absolute location in the stack
         let stack_pointer_offset = (-self.stack_offset_bytes / 16 + 1) * 16; // take next highest 16 byte value
         let offset = stack_pointer_offset + stack_offset_bytes;  // TODO: update to support other register sizes
+        result.push_str(&Self::format_instruction("str", vec!["w0", &format!("[sp, {}]", offset)]));
+        result
+    }
+
+    fn generate_variable_read(&mut self, stack_offset_bytes: i32) -> String {
+        // overwrite value at stack offset location
+        let mut result = String::new();
+        // use stack offset bytes to find absolute location in the stack
+        let stack_pointer_offset = (-self.stack_offset_bytes / 16 + 1) * 16; // take next highest 16 byte value
+        let offset = stack_pointer_offset + stack_offset_bytes;  // TODO: update to support other register sizes
         result.push_str(&Self::format_instruction("ldr", vec!["w0", &format!("[sp, {}]", offset)]));
         result
     }
@@ -182,6 +192,13 @@ impl Codegen {
             AstNode::Constant { constant } => {
                 let constant_str = format!("#{}", constant);
                 result.push_str(&Self::format_instruction("mov", vec!["w0", &constant_str[..]]));
+            },
+            AstNode::Variable { variable } => {
+                if !self.variable_map.contains_key(variable) {
+                    return Err(anyhow!("Variable not declared before assignment"));
+                }
+                let stack_offset = self.variable_map.get(variable).unwrap();
+                result.push_str(&self.generate_variable_read(*stack_offset));
             },
             AstNode::UnaryOp { operator, factor } => {
                 let nested_expression = self.generate_expression(factor)?;
@@ -594,14 +611,68 @@ mod tests {
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
                     mov	w0, #2
+                    str	w0, [sp, 28]
+                    mov	w0, #2
+                    str	w0, [sp, 24]
+                    mov	w0, #2
+                    str	w0, [sp, 20]
+                    mov	w0, #2
+                    str	w0, [sp, 16]
+                    mov	w0, #2
+                    str	w0, [sp, 12]
+                    mov	w0, 0
+                    ldp	x29, x30, [sp], 16
+                    ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_variable_read() {
+        let statement_1 = Box::new(AstNode::Declare { variable: "a".into(), expression: Some(Box::new(AstNode::Constant { constant: 1 })) });
+        let statement_2 = Box::new(AstNode::Declare { variable: "b".into(), expression: Some(Box::new(AstNode::Constant { constant: 1 })) });
+        let statement_3 = Box::new(AstNode::Declare { variable: "c".into(), expression: Some(Box::new(AstNode::Constant { constant: 1 })) });
+        let statement_4 = Box::new(AstNode::Declare { variable: "d".into(), expression: Some(Box::new(AstNode::Constant { constant: 1 })) });
+        let statement_5: Box<AstNode> = Box::new(AstNode::Declare { variable: "e".into(), expression: Some(Box::new(AstNode::Constant { constant: 1 })) });
+        let var_read_1: Box<AstNode> = Box::new(AstNode::Variable { variable: "a".into() } );
+        let var_read_2: Box<AstNode> = Box::new(AstNode::Variable { variable: "b".into() } );
+        let var_read_3: Box<AstNode> = Box::new(AstNode::Variable { variable: "c".into() } );
+        let var_read_4: Box<AstNode> = Box::new(AstNode::Variable { variable: "d".into() } );
+        let var_read_5: Box<AstNode> = Box::new(AstNode::Variable { variable: "e".into() } );
+
+        let function = Box::new(
+            AstNode::Function {
+                function_name: "main".into(), 
+                parameters: vec![], 
+                statement_list: Some(vec![statement_1, statement_2, statement_3, statement_4, statement_5, var_read_1, var_read_2, var_read_3, var_read_4, var_read_5])
+            }
+        );
+        let program = AstNode::Program { function_list: vec![function] } ;
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(
+            result, "
+                .globl _main
+                _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
+                    mov	w0, #1
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
+                    mov	w0, #1
+                    str	w0, [sp, 8]
+                    mov	w0, #1
+                    str	w0, [sp, 4]
+                    mov	w0, #1
+                    str	w0, [sp, 0]
+                    mov	w0, #1
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
                     ldr	w0, [sp, 28]
-                    mov	w0, #2
                     ldr	w0, [sp, 24]
-                    mov	w0, #2
                     ldr	w0, [sp, 20]
-                    mov	w0, #2
                     ldr	w0, [sp, 16]
-                    mov	w0, #2
                     ldr	w0, [sp, 12]
                     mov	w0, 0
                     ldp	x29, x30, [sp], 16

@@ -1,17 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{ HashMap, HashSet };
 
 use crate::parser::AstNode;
 
 use anyhow::anyhow;
 
 pub struct Validation {
-    func_declarations: HashMap<String, usize>,
-    func_definitions: HashMap<String, usize>
+    function_name_to_arg_count: HashMap<String, usize>,
+    function_is_defined: HashSet<String>,
 }
 
 impl Validation {
     pub fn new() -> Self {
-        Validation { func_declarations: HashMap::new(), func_definitions: HashMap::new() }
+        Validation { function_name_to_arg_count: HashMap::new(), function_is_defined: HashSet::new() }
     }
 
     pub fn validate_ast(&mut self, ast: &AstNode) -> anyhow::Result<()> {
@@ -33,27 +33,30 @@ impl Validation {
                 None => {
                     // function declaration
                     // cannot have two function declarations with same name, different number of params
-                    if let Some(param_count) = self.func_declarations.get(function_name) {
+                    if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
                         if parameters.len() != *param_count {
                             return Err(anyhow!("Found duplicate function declarations with different param counts"));
                         }
                     }
-                    self.func_declarations.insert(function_name.clone(), parameters.len());
+                    self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
                 },
                 Some(statement_node) => {
                     // function definition
                     // cannot have two function definitions
-                    if self.func_definitions.contains_key(function_name) {
+                    if self.function_is_defined.contains(function_name) {
                         return Err(anyhow!("Found duplicate function definitions"));
                     }
-                    // cannot have definition with different number of params as declaration
-                    if let Some(param_count) = self.func_declarations.get(function_name) {
+                    if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
+                        // cannot have definition with different number of params as declaration
                         if parameters.len() != *param_count {
                             return Err(anyhow!("Defined and declared functions have different number of arguments"));
                         }
+                    } else {
+                        // function declared and defined at the same time
+                        self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
                     }
 
-                    self.func_definitions.insert(function_name.clone(), parameters.len());
+                    self.function_is_defined.insert(function_name.clone());
 
                     // traverse function to validate expressions
                     let AstNode::Statement{ ref expression } = **statement_node else {
@@ -72,11 +75,7 @@ impl Validation {
         match node {
             AstNode::FunctionCall { ref function_name, ref parameters } => {
                 // cannot call function with wrong number of args
-                if let Some(param_count) = self.func_declarations.get(function_name) {
-                    if parameters.len() != *param_count {
-                        return Err(anyhow!("Called function with incorrect number of arguments"));
-                    }
-                } else if let Some(param_count) = self.func_definitions.get(function_name) {
+                if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
                     if parameters.len() != *param_count {
                         return Err(anyhow!("Called function with incorrect number of arguments"));
                     }

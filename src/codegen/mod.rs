@@ -21,13 +21,13 @@ impl Codegen {
             return Err(anyhow!("Called codegen on node that is not a program"))
         };
 
-        let mut result = String::new();
+        let mut result: String = String::new();
 
         // traverse the AST
-        // for function in function_list.iter() {
-        //     let generated_func = self.generate_function(*function)?;
-        //     result.push_str(&generated_func);
-        // }
+        for function in function_list.iter() {
+            let generated_func = self.generate_function(function)?;
+            result.push_str(&generated_func);
+        }
 
         Ok(result)
     }
@@ -66,7 +66,7 @@ impl Codegen {
     }
 
 
-    fn generate_function(&mut self, node: AstNode) -> anyhow::Result<String> {
+    fn generate_function(&mut self, node: &AstNode) -> anyhow::Result<String> {
         let AstNode::Function{
             function_name,
             parameters,
@@ -83,14 +83,14 @@ impl Codegen {
         // generate statement
         // TODO: fix handling of Some(...)
         if let Some(s) = statement {
-            let generated_statement = self.generate_statement(*s)?;
+            let generated_statement = self.generate_statement(s)?;
             result.push_str(&generated_statement);
         }
 
         Ok(result)
     }
 
-    fn generate_statement(&mut self, node: AstNode) -> anyhow::Result<String> {
+    fn generate_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
         let AstNode::Statement{expression} = node else {
             return Err(anyhow!("Called generate_statement on node that is not a statement"))
         };
@@ -98,14 +98,14 @@ impl Codegen {
         // only return statements supported for now
         let mut result: String = String::new();
 
-        let generated_expression: String = self.generate_expression(*expression)?;
+        let generated_expression: String = self.generate_expression(expression)?;
         result.push_str(&generated_expression);
         result.push_str(&Self::format_instruction("ret", vec![]));
 
         Ok(result)
     }
 
-    fn generate_expression(&mut self, node: AstNode) -> anyhow::Result<String> {
+    fn generate_expression(&mut self, node: &AstNode) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
         match node {
@@ -114,7 +114,7 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("mov", vec!["w0", &constant_str[..]]));
             },
             AstNode::UnaryOp { operator, factor } => {
-                let nested_expression = self.generate_expression(*factor)?;
+                let nested_expression = self.generate_expression(factor)?;
                 result.push_str(&nested_expression);
                 // assume previous operation moves the value to w0
                 match operator {
@@ -135,8 +135,8 @@ impl Codegen {
                 }
             },
             AstNode::BinaryOp { operator, expression: term, next_expression: next_term } => {
-                let nested_term_1 = self.generate_expression(*term)?;
-                let nested_term_2 = self.generate_expression(*next_term)?;
+                let nested_term_1 = self.generate_expression(term)?;
+                let nested_term_2 = self.generate_expression(next_term)?;
 
                 // write instructions for term 1
                 result.push_str(&nested_term_1);

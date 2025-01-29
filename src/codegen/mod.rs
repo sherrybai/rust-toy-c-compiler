@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::anyhow;
 #[cfg(test)]
 use assert_str::assert_str_trim_eq;
@@ -7,13 +9,14 @@ use crate::parser::{AstNode, Operator};
 const INDENT: &str = "	";
 
 pub struct Codegen {
-    stack_offset_bytes: u32,
+    stack_offset_bytes: i32,
     label_counter: u32,
+    variable_map: HashMap<String, i32>,
 }
 
 impl Codegen {
     pub fn new() -> Self {
-        Codegen { stack_offset_bytes: 0, label_counter: 1 }
+        Codegen { stack_offset_bytes: 0, label_counter: 1, variable_map: HashMap::new() }
     }
 
     pub fn codegen(&mut self, ast: AstNode) -> anyhow::Result<String> {
@@ -47,17 +50,17 @@ impl Codegen {
         if self.stack_offset_bytes % 16 == 0 {
             result.push_str(&Self::format_instruction("sub", vec!["sp", "sp", "#16"]));
         }
-        let offset = 16 - self.stack_offset_bytes % 16 - 4;  // TODO: update to support other register sizes
+        let offset = 16 + self.stack_offset_bytes % 16 - 4;  // TODO: update to support other register sizes
         result.push_str(&Self::format_instruction("str", vec![register, &format!("[sp, {}]", offset)]));
-        self.stack_offset_bytes += 4;
+        self.stack_offset_bytes -= 4;
         result
     }
 
     fn generate_pop_instruction(&mut self, register: &str) -> String {
         let mut result = String::new();
-        let offset = (16 - self.stack_offset_bytes % 16) % 16;  // TODO: update to support other register sizes
+        let offset = (16 + self.stack_offset_bytes % 16) % 16;  // TODO: update to support other register sizes
         result.push_str(&Self::format_instruction("ldr", vec![register, &format!("[sp, {}]", offset)]));
-        self.stack_offset_bytes -= 4;
+        self.stack_offset_bytes += 4;
         // free space if needed
         if self.stack_offset_bytes % 16 == 0 {
             result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
@@ -94,6 +97,7 @@ impl Codegen {
         };
 
         let mut result: String = String::new();
+        let mut explicit_return: bool = false;
         if let Some(s) = statement_list {
             // only generate assembly for function node if it is a definition 
             // (non-null function body)
@@ -108,10 +112,18 @@ impl Codegen {
             for statement in s {
                 let generated_statement = self.generate_statement(statement)?;
                 result.push_str(&generated_statement);
+
+                if let AstNode::Return { expression: _ } = **statement {
+                    explicit_return = true;
+                    break  // don't bother generating code after return
+                }
+            }
+            if !explicit_return {
+                // return 0
+                result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
             }
 
             result.push_str(&Self::generate_function_epilogue());
-            // always write 'ret' even without explicit return statement
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
 
@@ -119,15 +131,37 @@ impl Codegen {
     }
 
     fn generate_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
-        let AstNode::Return{expression} = node else {
-            return Err(anyhow!("Called generate_statement on node that is not a statement"))
-        };
-
-        // only return statements supported for now
         let mut result: String = String::new();
 
-        let generated_expression: String = self.generate_expression(expression)?;
-        result.push_str(&generated_expression);
+        match node {
+            AstNode::Return { expression } => {
+                let generated_expression: String = self.generate_expression(expression)?;
+                result.push_str(&generated_expression);
+                // write return later
+            },
+            AstNode::Declare { variable, expression } => {
+                if self.variable_map.contains_key(variable) {
+                    return Err(anyhow!("Variable already declared"));
+                }
+
+                let generated_expression: String;
+                if let Some(nested_expression) = expression {
+                    // write expression
+                    generated_expression = self.generate_expression(nested_expression)?;
+                } else {
+                    // initialize variable to 0
+                    generated_expression = Self::format_instruction("mov", vec!["w0", "0"]);
+                }
+                result.push_str(&generated_expression);
+                // assume value lives in w0
+                // push onto stack
+                result.push_str(&self.generate_push_instruction("w0"));
+                self.variable_map.insert(variable.clone(), self.stack_offset_bytes);
+            }
+            _ => {
+                return Err(anyhow!("Unsupported statement"));
+            }
+        }
         Ok(result)
     }
 
@@ -254,7 +288,7 @@ impl Codegen {
                         return Err(anyhow!("Not a binary operator"));
                     }
                 }
-            }
+            },
             _ => {
                 return Err(anyhow!("Malformed expression"));
             }
@@ -285,6 +319,26 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
+                    ldp	x29, x30, [sp], 16
+                    ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_no_explicit_return() {
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![])});
+        let program = AstNode::Program { function_list: vec![function] } ;
+
+        let mut codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(
+            result, "
+                .globl _main
+                _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
+                    mov	w0, 0
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -332,15 +386,15 @@ mod tests {
         let mut result = String::new();
 
         result.push_str(&codegen.generate_push_instruction("w0"));
-        assert_eq!(codegen.stack_offset_bytes, 4);
+        assert_eq!(codegen.stack_offset_bytes, -4);
         result.push_str(&codegen.generate_push_instruction("w1"));
-        assert_eq!(codegen.stack_offset_bytes, 8);
+        assert_eq!(codegen.stack_offset_bytes, -8);
         result.push_str(&codegen.generate_push_instruction("w2"));
-        assert_eq!(codegen.stack_offset_bytes, 12);
+        assert_eq!(codegen.stack_offset_bytes, -12);
         result.push_str(&codegen.generate_push_instruction("w3"));
-        assert_eq!(codegen.stack_offset_bytes, 16);
+        assert_eq!(codegen.stack_offset_bytes, -16);
         result.push_str(&codegen.generate_push_instruction("w4"));
-        assert_eq!(codegen.stack_offset_bytes, 20);
+        assert_eq!(codegen.stack_offset_bytes, -20);
 
         result.push_str(&&codegen.generate_pop_instruction("w0"));
         result.push_str(&&codegen.generate_pop_instruction("w1"));
@@ -435,5 +489,44 @@ mod tests {
                     ret
             "
         )
+    }
+
+    #[test]
+    fn test_variable_declaration() {
+        let constant_1 = Box::new(AstNode::Constant { constant: 1 });
+        let statement_1 = Box::new(AstNode::Declare { variable: "a".into(), expression: Some(constant_1) });
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![statement_1])});
+        let program = AstNode::Program { function_list: vec![function] } ;
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(
+            result, "
+                .globl _main
+                _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
+                    mov	w0, #1
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
+                    mov	w0, 0
+                    ldp	x29, x30, [sp], 16
+                    ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_duplicate_variable_declaration() {
+        let constant_1 = Box::new(AstNode::Constant { constant: 1 });
+        let constant_2 = Box::new(AstNode::Constant { constant: 2 });
+        let statement_1 = Box::new(AstNode::Declare { variable: "a".into(), expression: Some(constant_1) });
+        let statement_2 = Box::new(AstNode::Declare { variable: "a".into(), expression: Some(constant_2) });
+        let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement_list: Some(vec![statement_1, statement_2])});
+        let program = AstNode::Program { function_list: vec![function] } ;
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program);
+        assert!(result.is_err_and(|e| e.to_string() == "Variable already declared"));
     }
 }

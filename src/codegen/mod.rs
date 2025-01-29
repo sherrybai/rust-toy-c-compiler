@@ -65,6 +65,24 @@ impl Codegen {
         result
     }
 
+    fn generate_function_prologue() -> String {
+        let mut result = String::new();
+        // write frame pointer and link register (return address) to stack
+        // stack pointer remains 16 byte aligned
+        result.push_str(&Self::format_instruction("stp", vec!["x29", "x30", "[sp, -16]!"]));
+        // stack pointer now points to frame pointer (top of the caller function’s stack frame)
+        // top of caller's stack frame is bottom of callee's stack frame
+        result.push_str(&Self::format_instruction("mov", vec!["x29", "sp"]));
+        result
+    }
+
+    fn generate_function_epilogue() -> String {
+        let mut result = String::new();
+        // read frame pointer and link register (return address) from stack
+        // stack pointer remains 16 byte aligned
+        result.push_str(&Self::format_instruction("ldp", vec!["x29", "x30", "[sp]", "16"]));
+        result
+    }
 
     fn generate_function(&mut self, node: &AstNode) -> anyhow::Result<String> {
         let AstNode::Function{
@@ -79,13 +97,22 @@ impl Codegen {
         if let Some(s) = statement_list {
             // only generate assembly for function node if it is a definition 
             // (non-null function body)
+
+            // function definition
             result.push_str(&format!("{}.globl _{}\n", INDENT, function_name));
             result.push_str(&format!("_{}:\n", function_name));
+
+            // set up stack frame
+            result.push_str(&Self::generate_function_prologue());
 
             for statement in s {
                 let generated_statement = self.generate_statement(statement)?;
                 result.push_str(&generated_statement);
             }
+
+            result.push_str(&Self::generate_function_epilogue());
+            // always write 'ret' even without explicit return statement
+            result.push_str(&Self::format_instruction("ret", vec![]));
         }
 
         Ok(result)
@@ -101,8 +128,6 @@ impl Codegen {
 
         let generated_expression: String = self.generate_expression(expression)?;
         result.push_str(&generated_expression);
-        result.push_str(&Self::format_instruction("ret", vec![]));
-
         Ok(result)
     }
 
@@ -257,7 +282,10 @@ mod tests {
             result, "
                 .globl _main
                 _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
                     mov	w0, #2
+                    ldp	x29, x30, [sp], 16
                     ret
             "
         )
@@ -288,8 +316,11 @@ mod tests {
             result, "
                 .globl _main
                 _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
+                    ldp	x29, x30, [sp], 16
                     ret
             "
         )
@@ -353,6 +384,8 @@ mod tests {
             result, "
                 .globl _main
                 _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
                     mov	w0, #1
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
@@ -360,6 +393,7 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
+                    ldp	x29, x30, [sp], 16
                     ret
             "
         )
@@ -380,6 +414,8 @@ mod tests {
             result, "
                 .globl _main
                 _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
                     mov	w0, #1
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
@@ -395,6 +431,7 @@ mod tests {
                 .L1:
                     mov	w0, 0
                 .L2:
+                    ldp	x29, x30, [sp], 16
                     ret
             "
         )

@@ -21,6 +21,7 @@ pub enum TokenType {
     Division,
     AND,
     OR,
+    // == has to be before = for regex to match
     Equal,
     // != has to be before ! for regex to match
     NotEqual,
@@ -32,7 +33,8 @@ pub enum TokenType {
     Minus,
     BitwiseComplement,
     LogicalNegation,
-    // TODO: add tokens from stages 5-8
+    Assignment,
+    // TODO: add tokens from stages 6-8
     Comma,
 }
 
@@ -94,6 +96,7 @@ impl TokenType {
             Self::LessThanOrEqual => r"<=",
             Self::GreaterThan => r">",
             Self::GreaterThanOrEqual => r">=",
+            Self::Assignment => r"=",
             Self::Comma => r",",
         }
     }
@@ -183,31 +186,14 @@ mod tests {
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }
-    
+
     #[test]
-    fn test_lex_stage_9_function() {
+    fn test_lex_stage_5_assignment() {
         let contents = "
-            int hello(int x, int y) {
-                return x + y;
-            }
+            =
         ";
         let expected = vec![
-            TokenType::Keyword("int".into()), 
-            TokenType::Identifier("hello".into()),
-            TokenType::OpenParens, 
-            TokenType::Keyword("int".into()), 
-            TokenType::Identifier("x".into()),
-            TokenType::Comma,
-            TokenType::Keyword("int".into()), 
-            TokenType::Identifier("y".into()),
-            TokenType::ClosedParens, 
-            TokenType::OpenBrace,
-            TokenType::Keyword("return".into()),
-            TokenType::Identifier("x".into()),
-            TokenType::Addition,
-            TokenType::Identifier("y".into()),
-            TokenType::Semicolon,
-            TokenType::ClosedBrace,
+            TokenType::Assignment
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }

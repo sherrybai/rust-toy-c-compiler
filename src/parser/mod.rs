@@ -796,4 +796,50 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn test_parse_function_multiple_statements() {
+        let token_vec = vec![
+            TokenType::Keyword("int".into()),
+            TokenType::Identifier("main".into()),
+            TokenType::OpenParens,
+            TokenType::Identifier("param1".into()),
+            TokenType::Identifier("param2".into()),
+            TokenType::Identifier("param3".into()),
+            TokenType::ClosedParens,
+            TokenType::OpenBrace,
+            TokenType::Identifier("a".into()), 
+            TokenType::Equal, 
+            TokenType::IntLiteral(1), 
+            TokenType::Semicolon,
+            TokenType::Keyword("return".into()), 
+            TokenType::IntLiteral(2), 
+            TokenType::Semicolon,
+            TokenType::ClosedBrace
+        ];
+        let function: anyhow::Result<AstNode> = AstNode::parse_function(&mut peek_nth(token_vec.iter()));
+        let expression = Box::new(AstNode::Constant { constant: 2 });
+        let statement_1 = Box::new(AstNode::BinaryOp { 
+            operator: Operator::Equal, 
+            expression: Box::new(
+                AstNode::Variable { variable: "a".into() }
+            ),
+            next_expression: Box::new(
+                AstNode::Constant { constant: 1 }
+            ),
+        });
+        let statement_2 = Box::new(AstNode::Return {expression});
+        assert_eq!(
+            function.unwrap(), 
+            AstNode::Function { 
+                function_name: "main".into(), 
+                parameters: vec![
+                    "param1".into(), 
+                    "param2".into(), 
+                    "param3".into()
+                ], 
+                statement_list: Some(vec![statement_1, statement_2])
+            }
+        );
+    }
 }

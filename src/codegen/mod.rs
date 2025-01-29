@@ -90,7 +90,7 @@ impl Codegen {
     }
 
     fn generate_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
-        let AstNode::Statement{expression} = node else {
+        let AstNode::Return{expression} = node else {
             return Err(anyhow!("Called generate_statement on node that is not a statement"))
         };
 
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_codegen() {
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement = Some(Box::new(AstNode::Statement {expression}));
+        let statement = Some(Box::new(AstNode::Return {expression}));
         let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
         let program = AstNode::Program { function_list: vec![function] } ;
 
@@ -276,7 +276,7 @@ mod tests {
     fn test_unary_op() {
         let constant = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::UnaryOp { operator: Operator::BitwiseComplement, factor: constant });
-        let statement = Some(Box::new(AstNode::Statement {expression}));
+        let statement = Some(Box::new(AstNode::Return {expression}));
         let function = Box::new(AstNode::Function { function_name: "main".into(), parameters: vec![], statement });
         let program = AstNode::Program { function_list: vec![function] } ;
 
@@ -341,7 +341,7 @@ mod tests {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::BinaryOp { operator: Operator::Addition, expression: constant_1, next_expression: constant_2 });
-        let statement = Some(Box::new(AstNode::Statement {expression}));
+        let statement = Some(Box::new(AstNode::Return {expression}));
         let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
         let program = AstNode::Program { function_list: vec![function] } ;
 
@@ -368,7 +368,7 @@ mod tests {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::BinaryOp { operator: Operator::AND, expression: constant_1, next_expression: constant_2 });
-        let statement = Some(Box::new(AstNode::Statement {expression}));
+        let statement = Some(Box::new(AstNode::Return {expression}));
         let function = Box::new(AstNode::Function {function_name: "main".into(), parameters: vec![], statement});
         let program = AstNode::Program { function_list: vec![function] } ;
 

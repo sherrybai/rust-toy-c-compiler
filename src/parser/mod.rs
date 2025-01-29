@@ -63,8 +63,12 @@ pub enum AstNode {
         parameters: Vec<String>,
         statement: Option<Box<Self>>,
     },
-    Statement {
+    Return {
         expression: Box<Self>,
+    },
+    Declare {
+        variable: String,
+        expression: Option<Box<Self>>,
     },
     // Expressions
     BinaryOp {
@@ -169,17 +173,45 @@ impl AstNode {
     }
 
     fn parse_statement(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
-        // parse keyword token
-        if let TokenType::Keyword(s) = Self::get_next_token_from_iter(token_iter)? {
-            if s != "return" {
-                return Err(anyhow!("First keyword of statement is not 'return'"))
+        // <statement> ::= "return" <exp> ";"| <exp> ";" | "int" <id> [ = <exp> ] ";"
+        let statement: AstNode;
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        if let Some(TokenType::Keyword(s)) = next_token {
+            match &s[..] {
+                "return" => {
+                    // advance iterator past "return"
+                    Self::get_next_token_from_iter(token_iter)?;
+
+                    let expression = Self::parse_expression(token_iter)?;
+                    statement = Self::Return{expression: Box::new(expression)};
+                } 
+                "int" => { // variable assignment
+                    // advance iterator past "int"
+                    Self::get_next_token_from_iter(token_iter)?;
+                    let TokenType::Identifier(variable_name) = Self::get_next_token_from_iter(token_iter)? else {
+                        return Err(anyhow!("int keyword must be followed by string identifier for variable declaration"));
+                    };
+
+                    // check for assignment
+                    let mut expression: Option<Box<Self>> = None;
+                    next_token = token_iter.peek();
+                    if let Some(TokenType::Assignment) = next_token {
+                        // advance iterator past "="
+                        Self::get_next_token_from_iter(token_iter)?;
+                        expression = Some(Box::new(Self::parse_expression(token_iter)?));
+                    }
+
+                    statement = Self::Declare { variable: variable_name.clone(), expression }
+                }
+                _ => {
+                    // parse as expression
+                    return Err(anyhow!("Unknown keyword"));
+                }
             }
         } else {
-            return Err(anyhow!("First token of statement is not a keyword"));
+            // parse as expression
+            statement = Self::parse_expression(token_iter)?;
         }
-
-        let expression = Self::parse_expression(token_iter)?;
-        let statement = Self::Statement{expression: Box::new(expression)};
 
         // must end in semicolon
         let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
@@ -191,7 +223,7 @@ impl AstNode {
     }
 
     fn parse_expression(token_iter: &mut Peekable<Iter<TokenType>>) -> anyhow::Result<Self> {
-        // <exp> ::= <logical-and-exp> { "||" <logical-and-exp> }
+        // <exp> ::=  <logical-and-exp> { "||" <logical-and-exp> }
         let mut logical_or_exp = Self::parse_logical_and_exp(token_iter)?;
         
         // keep parsing subsequent terms, wrapping each new one around old ones
@@ -613,7 +645,7 @@ mod tests {
         let token_vec = vec![TokenType::Keyword("return".into()), TokenType::IntLiteral(2), TokenType::Semicolon];
         let statement: anyhow::Result<AstNode> = AstNode::parse_statement(&mut token_vec.iter().peekable());
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        assert_eq!(statement.unwrap(), AstNode::Statement{expression});
+        assert_eq!(statement.unwrap(), AstNode::Return{expression});
     }
 
 
@@ -634,7 +666,7 @@ mod tests {
         ];
         let function: anyhow::Result<AstNode> = AstNode::parse_function(&mut token_vec.iter().peekable());
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement = Box::new(AstNode::Statement {expression});
+        let statement = Box::new(AstNode::Return {expression});
         assert_eq!(
             function.unwrap(), 
             AstNode::Function { 
@@ -694,7 +726,7 @@ mod tests {
                             parameters: vec![], 
                             statement: Some(
                                 Box::new(
-                                    AstNode::Statement { 
+                                    AstNode::Return { 
                                         expression: Box::new(
                                             AstNode::Constant{ constant: 2 }
                                         ),

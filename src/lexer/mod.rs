@@ -41,19 +41,20 @@ pub enum TokenType {
 impl TokenType {
     pub fn lex(contents: &str) -> anyhow::Result<Vec<Self>> {
         let mut vec: Vec<Self> = vec![];
-    
+
         let re = Regex::new(&Self::get_regex_pattern()[..])?;
         for capture in re.captures_iter(contents) {
             for (i, group) in capture.iter().enumerate() {
-                if i == 0 {  // first index indicates overall match
-                    continue
+                if i == 0 {
+                    // first index indicates overall match
+                    continue;
                 }
                 // subsequent index with non-null value indicates the specific capture group that captured the match
                 match group {
                     Some(m) => {
                         vec.push(Self::from_index(i, m.as_str())?);
-                    },
-                    None => ()
+                    }
+                    None => (),
                 }
             }
         }
@@ -61,14 +62,14 @@ impl TokenType {
     }
 
     pub fn from_index(i: usize, m: &str) -> anyhow::Result<Self> {
-        let Some(variant) = Self::iter().nth(i-1) else {
+        let Some(variant) = Self::iter().nth(i - 1) else {
             return Err(anyhow!("No enum variant found for index {:?}", i));
         };
         match variant {
             Self::Keyword(_) => Ok(Self::Keyword(m.to_string())),
             Self::Identifier(_) => Ok(Self::Identifier(m.to_string())),
             Self::IntLiteral(_) => Ok(Self::IntLiteral(str::parse::<u32>(m)?)),
-            _ => Ok(variant)
+            _ => Ok(variant),
         }
     }
 
@@ -102,9 +103,10 @@ impl TokenType {
     }
 
     pub fn get_regex_pattern() -> String {
-        Self::iter().map(|t| format!(r"({})", t.to_regex_pattern())).join("|")
+        Self::iter()
+            .map(|t| format!(r"({})", t.to_regex_pattern()))
+            .join("|")
     }
-
 }
 
 #[cfg(test)]
@@ -119,10 +121,10 @@ mod tests {
             }
         ";
         let expected = vec![
-            TokenType::Keyword("int".into()), 
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
-            TokenType::OpenParens, 
-            TokenType::ClosedParens, 
+            TokenType::OpenParens,
+            TokenType::ClosedParens,
             TokenType::OpenBrace,
             TokenType::Keyword("return".into()),
             TokenType::IntLiteral(2),
@@ -182,7 +184,7 @@ mod tests {
             TokenType::LessThan,
             TokenType::LessThanOrEqual,
             TokenType::GreaterThan,
-            TokenType::GreaterThanOrEqual
+            TokenType::GreaterThanOrEqual,
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }
@@ -192,9 +194,7 @@ mod tests {
         let contents = "
             =
         ";
-        let expected = vec![
-            TokenType::Assignment
-        ];
+        let expected = vec![TokenType::Assignment];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }
 }

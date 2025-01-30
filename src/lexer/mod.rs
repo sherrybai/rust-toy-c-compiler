@@ -50,11 +50,8 @@ impl TokenType {
                     continue;
                 }
                 // subsequent index with non-null value indicates the specific capture group that captured the match
-                match group {
-                    Some(m) => {
-                        vec.push(Self::from_index(i, m.as_str())?);
-                    }
-                    None => (),
+                if let Some(m) = group {
+                    vec.push(Self::from_index(i, m.as_str())?);
                 }
             }
         }

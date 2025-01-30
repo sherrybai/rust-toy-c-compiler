@@ -57,12 +57,12 @@ impl Operator {
 #[derive(Debug, PartialEq)]
 pub enum AstNode {
     Program {
-        function_list: Vec<Box<Self>>,
+        function_list: Vec<Self>,
     },
     Function {
         function_name: String,
         parameters: Vec<String>,
-        statement_list: Option<Vec<Box<Self>>>,
+        statement_list: Option<Vec<Self>>,
     },
     Return {
         expression: Box<Self>,
@@ -93,7 +93,7 @@ pub enum AstNode {
     },
     FunctionCall {
         function_name: String,
-        parameters: Vec<Box<Self>>,
+        parameters: Vec<Self>,
     },
 }
 
@@ -101,13 +101,13 @@ impl AstNode {
     pub fn parse(tokens: &[TokenType]) -> anyhow::Result<Self> {
         // <program> ::= { <function> }
         let mut token_iter = peek_nth(tokens.iter());
-        let mut function_list: Vec<Box<Self>> = Vec::new();
+        let mut function_list: Vec<Self> = Vec::new();
         loop {
             let next_token: Option<&&TokenType> = token_iter.peek();
             match next_token {
                 Some(_) => {
                     let function: Self = Self::parse_function(&mut token_iter)?;
-                    function_list.push(Box::new(function));
+                    function_list.push(function);
                 }
                 None => return Ok(Self::Program { function_list }),
             }
@@ -181,7 +181,7 @@ impl AstNode {
                 break;
             } else {
                 let statement = Self::parse_statement(token_iter)?;
-                statements.push(Box::new(statement));
+                statements.push(statement);
             };
             next_token = token_iter.peek();
         }
@@ -436,7 +436,7 @@ impl AstNode {
                     Self::get_next_token_from_iter(token_iter)?;
 
                     // parse list of expression params
-                    let mut parameters: Vec<Box<Self>> = Vec::new();
+                    let mut parameters: Vec<Self> = Vec::new();
 
                     let next_token: Option<&&TokenType> = token_iter.peek();
                     if let Some(TokenType::ClosedParens) = next_token {
@@ -444,7 +444,7 @@ impl AstNode {
                     } else {
                         // parse at least one param
                         let exp = Self::parse_expression(token_iter)?;
-                        parameters.push(Box::new(exp));
+                        parameters.push(exp);
                         loop {
                             let next_token: Option<&&TokenType> = token_iter.peek();
                             if let Some(TokenType::ClosedParens) = next_token {
@@ -459,7 +459,7 @@ impl AstNode {
                             };
                             // parse next expression
                             let exp = Self::parse_expression(token_iter)?;
-                            parameters.push(Box::new(exp));
+                            parameters.push(exp);
                         }
                         let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)?
                         else {
@@ -531,9 +531,9 @@ mod tests {
             AstNode::FunctionCall {
                 function_name: "main".into(),
                 parameters: vec![
-                    Box::new(AstNode::Constant { constant: 1 }),
-                    Box::new(AstNode::Constant { constant: 2 }),
-                    Box::new(AstNode::Constant { constant: 3 }),
+                    AstNode::Constant { constant: 1 },
+                    AstNode::Constant { constant: 2 },
+                    AstNode::Constant { constant: 3 },
                 ],
             }
         );
@@ -787,7 +787,7 @@ mod tests {
         let function: anyhow::Result<AstNode> =
             AstNode::parse_function(&mut peek_nth(token_vec.iter()));
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement = Box::new(AstNode::Return { expression });
+        let statement = AstNode::Return { expression };
         assert_eq!(
             function.unwrap(),
             AstNode::Function {
@@ -827,18 +827,18 @@ mod tests {
             program.unwrap(),
             AstNode::Program {
                 function_list: vec![
-                    Box::new(AstNode::Function {
+                    AstNode::Function {
                         function_name: "helper".into(),
                         parameters: vec!["param1".into(), "param2".into(), "param3".into(),],
                         statement_list: None,
-                    }),
-                    Box::new(AstNode::Function {
+                    },
+                    AstNode::Function {
                         function_name: "main".into(),
                         parameters: vec![],
-                        statement_list: Some(vec![Box::new(AstNode::Return {
+                        statement_list: Some(vec![AstNode::Return {
                             expression: Box::new(AstNode::Constant { constant: 2 }),
-                        },),],)
-                    }),
+                        }])
+                    },
                 ]
             }
         );
@@ -867,14 +867,14 @@ mod tests {
         let function: anyhow::Result<AstNode> =
             AstNode::parse_function(&mut peek_nth(token_vec.iter()));
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement_1 = Box::new(AstNode::BinaryOp {
+        let statement_1 = AstNode::BinaryOp {
             operator: Operator::Equal,
             expression: Box::new(AstNode::Variable {
                 variable: "a".into(),
             }),
             next_expression: Box::new(AstNode::Constant { constant: 1 }),
-        });
-        let statement_2 = Box::new(AstNode::Return { expression });
+        };
+        let statement_2 = AstNode::Return { expression };
         assert_eq!(
             function.unwrap(),
             AstNode::Function {

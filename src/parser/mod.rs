@@ -15,8 +15,8 @@ pub enum Operator {
     Addition,
     Multiplication,
     Division,
-    AND,
-    OR,
+    And,
+    Or,
     Equal,
     NotEqual,
     LessThan,
@@ -41,8 +41,8 @@ impl Operator {
             TokenType::Addition => Ok(Self::Addition),
             TokenType::Multiplication => Ok(Self::Multiplication),
             TokenType::Division => Ok(Self::Division),
-            TokenType::AND => Ok(Self::AND),
-            TokenType::OR => Ok(Self::OR),
+            TokenType::And => Ok(Self::And),
+            TokenType::Or => Ok(Self::Or),
             TokenType::Equal => Ok(Self::Equal),
             TokenType::NotEqual => Ok(Self::NotEqual),
             TokenType::LessThan => Ok(Self::LessThan),
@@ -282,7 +282,7 @@ impl AstNode {
 
         // keep parsing subsequent terms, wrapping each new one around old ones
         let mut next_token: Option<&&TokenType> = token_iter.peek();
-        while let Some(TokenType::OR) = next_token {
+        while let Some(TokenType::Or) = next_token {
             // advance the iterator (token = *next_token)
             let token = Self::get_next_token_from_iter(token_iter)?;
 
@@ -305,7 +305,7 @@ impl AstNode {
 
         // keep parsing subsequent terms, wrapping each new one around old ones
         let mut next_token: Option<&&TokenType> = token_iter.peek();
-        while let Some(TokenType::AND) = next_token {
+        while let Some(TokenType::And) = next_token {
             // advance the iterator (token = *next_token)
             let token = Self::get_next_token_from_iter(token_iter)?;
 
@@ -545,7 +545,7 @@ mod tests {
             TokenType::IntLiteral(2),
             TokenType::Equal,
             TokenType::IntLiteral(2),
-            TokenType::OR,
+            TokenType::Or,
             TokenType::IntLiteral(0),
         ];
         let exp: anyhow::Result<AstNode> =
@@ -553,7 +553,7 @@ mod tests {
         assert_eq!(
             exp.unwrap(),
             AstNode::BinaryOp {
-                operator: Operator::OR,
+                operator: Operator::Or,
                 expression: Box::new(AstNode::BinaryOp {
                     operator: Operator::Equal,
                     expression: Box::new(AstNode::Constant { constant: 2 }),
@@ -568,9 +568,9 @@ mod tests {
     fn test_parse_binary_op_and_or() {
         let token_vec = vec![
             TokenType::IntLiteral(1),
-            TokenType::OR,
+            TokenType::Or,
             TokenType::IntLiteral(2),
-            TokenType::AND,
+            TokenType::And,
             TokenType::IntLiteral(3),
         ];
         let exp: anyhow::Result<AstNode> =
@@ -578,10 +578,10 @@ mod tests {
         assert_eq!(
             exp.unwrap(),
             AstNode::BinaryOp {
-                operator: Operator::OR,
+                operator: Operator::Or,
                 expression: Box::new(AstNode::Constant { constant: 1 }),
                 next_expression: Box::new(AstNode::BinaryOp {
-                    operator: Operator::AND,
+                    operator: Operator::And,
                     expression: Box::new(AstNode::Constant { constant: 2 }),
                     next_expression: Box::new(AstNode::Constant { constant: 3 }),
                 }),

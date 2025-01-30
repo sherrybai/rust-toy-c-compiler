@@ -19,8 +19,8 @@ pub enum TokenType {
     Addition,
     Multiplication,
     Division,
-    AND,
-    OR,
+    And,
+    Or,
     // == has to be before = for regex to match
     Equal,
     // != has to be before ! for regex to match
@@ -86,8 +86,8 @@ impl TokenType {
             Self::Addition => r"\+",
             Self::Multiplication => r"\*",
             Self::Division => r"\/",
-            Self::AND => r"&&",
-            Self::OR => r"\|\|",
+            Self::And => r"&&",
+            Self::Or => r"\|\|",
             Self::Equal => r"==",
             Self::NotEqual => r"\!=",
             Self::LessThan => r"<",
@@ -174,8 +174,8 @@ mod tests {
             >=
         ";
         let expected = vec![
-            TokenType::AND,
-            TokenType::OR,
+            TokenType::And,
+            TokenType::Or,
             TokenType::Equal,
             TokenType::NotEqual,
             TokenType::LessThan,

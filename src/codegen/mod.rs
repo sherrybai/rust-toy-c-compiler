@@ -299,7 +299,7 @@ impl Codegen {
                     Operator::Division => {
                         result.push_str(&Self::format_instruction("sdiv", vec!["w0", "w1", "w0"]));
                     }
-                    Operator::AND => {
+                    Operator::And => {
                         let label_1 = &format!(".L{:?}", self.label_counter);
                         let label_2 = &format!(".L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
@@ -317,7 +317,7 @@ impl Codegen {
                         // mark end of this block
                         result.push_str(&format!("{}:\n", label_2));
                     }
-                    Operator::OR => {
+                    Operator::Or => {
                         let label_1 = &format!(".L{:?}", self.label_counter);
                         let label_2 = &format!(".L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
@@ -589,7 +589,7 @@ mod tests {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::BinaryOp {
-            operator: Operator::AND,
+            operator: Operator::And,
             expression: constant_1,
             next_expression: constant_2,
         });

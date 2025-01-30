@@ -71,14 +71,14 @@ impl Validation {
                         // traverse function to validate expressions
                         match statement_node {
                             AstNode::Return { ref expression } => {
-                                self.validate_expression(&expression)?;
+                                self.validate_expression(expression)?;
                             }
                             AstNode::Declare {
                                 variable: _,
                                 ref expression,
                             } => {
                                 if let Some(exp) = expression {
-                                    self.validate_expression(&exp)?;
+                                    self.validate_expression(exp)?;
                                 }
                             }
                             _ => {

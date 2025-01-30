@@ -72,7 +72,7 @@ impl Codegen {
         // overwrite value at stack offset location
         let mut result = String::new();
         // use stack offset bytes to find absolute location in the stack
-        let stack_pointer_offset = (-self.stack_offset_bytes / 16 + 1) * 16; // take next highest 16 byte value
+        let stack_pointer_offset = (-self.stack_offset_bytes + 12) / 16 * 16; // take next highest 16 byte value
         let offset = stack_pointer_offset + stack_offset_bytes;  // TODO: update to support other register sizes
         result.push_str(&Self::format_instruction("str", vec!["w0", &format!("[sp, {}]", offset)]));
         result
@@ -82,7 +82,7 @@ impl Codegen {
         // overwrite value at stack offset location
         let mut result = String::new();
         // use stack offset bytes to find absolute location in the stack
-        let stack_pointer_offset = (-self.stack_offset_bytes / 16 + 1) * 16; // take next highest 16 byte value
+        let stack_pointer_offset = (-self.stack_offset_bytes + 12) / 16 * 16; // take next highest 16 byte value
         let offset = stack_pointer_offset + stack_offset_bytes;  // TODO: update to support other register sizes
         result.push_str(&Self::format_instruction("ldr", vec!["w0", &format!("[sp, {}]", offset)]));
         result
@@ -99,11 +99,17 @@ impl Codegen {
         result
     }
 
-    fn generate_function_epilogue() -> String {
+    fn generate_function_epilogue(&mut self) -> String {
         let mut result = String::new();
+
+        // need to restore stack pointer
+        let stack_pointer_offset = (-self.stack_offset_bytes + 12) / 16 * 16; // take next highest 16 byte value
+        result.push_str(&Self::format_instruction("add", vec!["sp", "sp", &format!("{}", stack_pointer_offset)[..]]));
+        
         // read frame pointer and link register (return address) from stack
         // stack pointer remains 16 byte aligned
         result.push_str(&Self::format_instruction("ldp", vec!["x29", "x30", "[sp]", "16"]));
+
         result
     }
 
@@ -143,7 +149,7 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
             }
 
-            result.push_str(&Self::generate_function_epilogue());
+            result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
 

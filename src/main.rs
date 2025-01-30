@@ -48,8 +48,8 @@ fn main() -> anyhow::Result<()> {
     let lexed: Vec<TokenType> = TokenType::lex(&contents[..])?;
     let parsed: AstNode = AstNode::parse(&lexed[..])?;
 
-    let mut validation = Validation::new();
-    validation.validate_ast(&parsed)?;
+    // let mut validation = Validation::new();
+    // validation.validate_ast(&parsed)?;
 
     let mut codegen = Codegen::new();
     let generated: String = codegen.codegen(parsed)?;

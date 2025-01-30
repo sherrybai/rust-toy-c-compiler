@@ -60,10 +60,19 @@ impl Validation {
                         self.function_is_defined.insert(function_name.clone());
 
                         // traverse function to validate expressions
-                        let AstNode::Return{ ref expression } = **statement_node else {
-                            return Err(anyhow!("Function contains non-statement"));
-                        };
-                        self.validate_expression(expression)?;
+                        match **statement_node {
+                            AstNode::Return { ref expression } => {
+                                self.validate_expression(&expression)?;
+                            },
+                            AstNode::Declare { variable: _, ref expression } => {
+                                if let Some(exp) = expression {
+                                    self.validate_expression(&exp)?;
+                                }
+                            },
+                            _ => {
+                                self.validate_expression(statement_node)?;
+                            }
+                        }
                     }
                 }
             }

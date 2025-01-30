@@ -40,7 +40,7 @@ impl Codegen {
     }
 
     fn format_instruction(instruction: &str, args: Vec<&str>) -> String {
-        if args.len() > 0 {
+        if !args.is_empty() {
             format!("{}{}{}{}\n", INDENT, instruction, INDENT, args.join(", "))
         } else {
             format!("{}{}\n", INDENT, instruction)
@@ -168,7 +168,7 @@ impl Codegen {
                 let generated_statement = self.generate_statement(statement)?;
                 result.push_str(&generated_statement);
 
-                if let AstNode::Return { expression: _ } = **statement {
+                if let AstNode::Return { expression: _ } = statement {
                     explicit_return = true;
                     break; // don't bother generating code after return
                 }
@@ -299,7 +299,7 @@ impl Codegen {
                     Operator::Division => {
                         result.push_str(&Self::format_instruction("sdiv", vec!["w0", "w1", "w0"]));
                     }
-                    Operator::AND => {
+                    Operator::And => {
                         let label_1 = &format!(".L{:?}", self.label_counter);
                         let label_2 = &format!(".L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
@@ -317,7 +317,7 @@ impl Codegen {
                         // mark end of this block
                         result.push_str(&format!("{}:\n", label_2));
                     }
-                    Operator::OR => {
+                    Operator::Or => {
                         let label_1 = &format!(".L{:?}", self.label_counter);
                         let label_2 = &format!(".L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
@@ -395,12 +395,12 @@ mod tests {
     #[test]
     fn test_codegen() {
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement = Box::new(AstNode::Return { expression });
-        let function = Box::new(AstNode::Function {
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![statement]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -423,11 +423,11 @@ mod tests {
 
     #[test]
     fn test_no_explicit_return() {
-        let function = Box::new(AstNode::Function {
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -450,11 +450,11 @@ mod tests {
 
     #[test]
     fn test_function_declaration() {
-        let function = Box::new(AstNode::Function {
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: None,
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -472,12 +472,12 @@ mod tests {
             operator: Operator::BitwiseComplement,
             factor: constant,
         });
-        let statement = Box::new(AstNode::Return { expression });
-        let function = Box::new(AstNode::Function {
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![statement]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -552,12 +552,12 @@ mod tests {
             expression: constant_1,
             next_expression: constant_2,
         });
-        let statement = Box::new(AstNode::Return { expression });
-        let function = Box::new(AstNode::Function {
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![statement]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -589,16 +589,16 @@ mod tests {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
         let expression = Box::new(AstNode::BinaryOp {
-            operator: Operator::AND,
+            operator: Operator::And,
             expression: constant_1,
             next_expression: constant_2,
         });
-        let statement = Box::new(AstNode::Return { expression });
-        let function = Box::new(AstNode::Function {
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![statement]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -636,15 +636,15 @@ mod tests {
     #[test]
     fn test_variable_declaration() {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
-        let statement_1 = Box::new(AstNode::Declare {
+        let statement_1 = AstNode::Declare {
             variable: "a".into(),
             expression: Some(constant_1),
-        });
-        let function = Box::new(AstNode::Function {
+        };
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![statement_1]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -673,19 +673,19 @@ mod tests {
     fn test_duplicate_variable_declaration() {
         let constant_1 = Box::new(AstNode::Constant { constant: 1 });
         let constant_2 = Box::new(AstNode::Constant { constant: 2 });
-        let statement_1 = Box::new(AstNode::Declare {
+        let statement_1 = AstNode::Declare {
             variable: "a".into(),
             expression: Some(constant_1),
-        });
-        let statement_2 = Box::new(AstNode::Declare {
+        };
+        let statement_2 = AstNode::Declare {
             variable: "a".into(),
             expression: Some(constant_2),
-        });
-        let function = Box::new(AstNode::Function {
+        };
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![statement_1, statement_2]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -697,48 +697,48 @@ mod tests {
 
     #[test]
     fn test_variable_assignment() {
-        let statement_1 = Box::new(AstNode::Declare {
+        let statement_1 = AstNode::Declare {
             variable: "a".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_2 = Box::new(AstNode::Declare {
+        };
+        let statement_2 = AstNode::Declare {
             variable: "b".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_3 = Box::new(AstNode::Declare {
+        };
+        let statement_3 = AstNode::Declare {
             variable: "c".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_4 = Box::new(AstNode::Declare {
+        };
+        let statement_4 = AstNode::Declare {
             variable: "d".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_5: Box<AstNode> = Box::new(AstNode::Declare {
+        };
+        let statement_5 = AstNode::Declare {
             variable: "e".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let assignment_1: Box<AstNode> = Box::new(AstNode::Assign {
+        };
+        let assignment_1 = AstNode::Assign {
             variable: "a".into(),
             expression: Box::new(AstNode::Constant { constant: 2 }),
-        });
-        let assignment_2: Box<AstNode> = Box::new(AstNode::Assign {
+        };
+        let assignment_2 = AstNode::Assign {
             variable: "b".into(),
             expression: Box::new(AstNode::Constant { constant: 2 }),
-        });
-        let assignment_3: Box<AstNode> = Box::new(AstNode::Assign {
+        };
+        let assignment_3 = AstNode::Assign {
             variable: "c".into(),
             expression: Box::new(AstNode::Constant { constant: 2 }),
-        });
-        let assignment_4: Box<AstNode> = Box::new(AstNode::Assign {
+        };
+        let assignment_4 = AstNode::Assign {
             variable: "d".into(),
             expression: Box::new(AstNode::Constant { constant: 2 }),
-        });
-        let assignment_5: Box<AstNode> = Box::new(AstNode::Assign {
+        };
+        let assignment_5 = AstNode::Assign {
             variable: "e".into(),
             expression: Box::new(AstNode::Constant { constant: 2 }),
-        });
+        };
 
-        let function = Box::new(AstNode::Function {
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![
@@ -753,7 +753,7 @@ mod tests {
                 assignment_4,
                 assignment_5,
             ]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };
@@ -799,43 +799,43 @@ mod tests {
 
     #[test]
     fn test_variable_read() {
-        let statement_1 = Box::new(AstNode::Declare {
+        let statement_1 = AstNode::Declare {
             variable: "a".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_2 = Box::new(AstNode::Declare {
+        };
+        let statement_2 = AstNode::Declare {
             variable: "b".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_3 = Box::new(AstNode::Declare {
+        };
+        let statement_3 = AstNode::Declare {
             variable: "c".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_4 = Box::new(AstNode::Declare {
+        };
+        let statement_4 = AstNode::Declare {
             variable: "d".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let statement_5: Box<AstNode> = Box::new(AstNode::Declare {
+        };
+        let statement_5 = AstNode::Declare {
             variable: "e".into(),
             expression: Some(Box::new(AstNode::Constant { constant: 1 })),
-        });
-        let var_read_1: Box<AstNode> = Box::new(AstNode::Variable {
+        };
+        let var_read_1 = AstNode::Variable {
             variable: "a".into(),
-        });
-        let var_read_2: Box<AstNode> = Box::new(AstNode::Variable {
+        };
+        let var_read_2 = AstNode::Variable {
             variable: "b".into(),
-        });
-        let var_read_3: Box<AstNode> = Box::new(AstNode::Variable {
+        };
+        let var_read_3 = AstNode::Variable {
             variable: "c".into(),
-        });
-        let var_read_4: Box<AstNode> = Box::new(AstNode::Variable {
+        };
+        let var_read_4 = AstNode::Variable {
             variable: "d".into(),
-        });
-        let var_read_5: Box<AstNode> = Box::new(AstNode::Variable {
+        };
+        let var_read_5 = AstNode::Variable {
             variable: "e".into(),
-        });
+        };
 
-        let function = Box::new(AstNode::Function {
+        let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
             statement_list: Some(vec![
@@ -850,7 +850,7 @@ mod tests {
                 var_read_4,
                 var_read_5,
             ]),
-        });
+        };
         let program = AstNode::Program {
             function_list: vec![function],
         };

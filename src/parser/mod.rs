@@ -1,8 +1,8 @@
 use std::slice::Iter;
 
 use crate::lexer::TokenType;
-use anyhow::Context;
 use anyhow::anyhow;
+use anyhow::Context;
 use itertools::peek_nth;
 use itertools::PeekNth;
 
@@ -22,7 +22,7 @@ pub enum Operator {
     LessThan,
     LessThanOrEqual,
     GreaterThan,
-    GreaterThanOrEqual
+    GreaterThanOrEqual,
 }
 
 impl Operator {
@@ -31,7 +31,7 @@ impl Operator {
             TokenType::Minus => Ok(Self::Negation),
             TokenType::BitwiseComplement => Ok(Self::BitwiseComplement),
             TokenType::LogicalNegation => Ok(Self::LogicalNegation),
-            _ => Err(anyhow!("Unsupported operator"))
+            _ => Err(anyhow!("Unsupported operator")),
         }
     }
 
@@ -49,7 +49,7 @@ impl Operator {
             TokenType::LessThanOrEqual => Ok(Self::LessThanOrEqual),
             TokenType::GreaterThan => Ok(Self::GreaterThan),
             TokenType::GreaterThanOrEqual => Ok(Self::GreaterThanOrEqual),
-            _ => Err(anyhow!("Unsupported operator"))
+            _ => Err(anyhow!("Unsupported operator")),
         }
     }
 }
@@ -78,7 +78,7 @@ pub enum AstNode {
     // Expressions
     BinaryOp {
         operator: Operator,
-        expression: Box<Self>,      
+        expression: Box<Self>,
         next_expression: Box<Self>,
     },
     UnaryOp {
@@ -94,7 +94,7 @@ pub enum AstNode {
     FunctionCall {
         function_name: String,
         parameters: Vec<Box<Self>>,
-    }
+    },
 }
 
 impl AstNode {
@@ -109,9 +109,7 @@ impl AstNode {
                     let function: Self = Self::parse_function(&mut token_iter)?;
                     function_list.push(Box::new(function));
                 }
-                None => {
-                    return Ok(Self::Program{ function_list })
-                }
+                None => return Ok(Self::Program { function_list }),
             }
         }
     }
@@ -121,11 +119,10 @@ impl AstNode {
 
         // parse keyword token
         if let TokenType::Keyword(s) = Self::get_next_token_from_iter(token_iter)? {
-            if s != "int"  {
+            if s != "int" {
                 return Err(anyhow!("First keyword of function is not 'int'"));
             }
-        }
-        else {
+        } else {
             return Err(anyhow!("First token of function is not a keyword"));
         }
 
@@ -159,31 +156,41 @@ impl AstNode {
         match next_token {
             TokenType::Semicolon => {
                 // function declaration
-                return Ok(Self::Function { function_name, parameters, statement_list: None })
-            },
+                return Ok(Self::Function {
+                    function_name,
+                    parameters,
+                    statement_list: None,
+                });
+            }
             TokenType::OpenBrace => {
                 // do nothing
-            },
+            }
             _ => {
-                return Err(anyhow!("No semicolon or open brace following function parameters"));
+                return Err(anyhow!(
+                    "No semicolon or open brace following function parameters"
+                ));
             }
         }
         // parse statements
         let mut statements = Vec::new();
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         loop {
-            if let Some(TokenType::ClosedBrace) = next_token {  // terminate function body with closed brace
+            if let Some(TokenType::ClosedBrace) = next_token {
+                // terminate function body with closed brace
                 Self::get_next_token_from_iter(token_iter)?;
-                break
+                break;
             } else {
                 let statement = Self::parse_statement(token_iter)?;
                 statements.push(Box::new(statement));
-            }; 
+            };
             next_token = token_iter.peek();
         }
         // return node
-        Ok(Self::Function { function_name, parameters, statement_list: Some(statements) })
-
+        Ok(Self::Function {
+            function_name,
+            parameters,
+            statement_list: Some(statements),
+        })
     }
 
     fn parse_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
@@ -197,12 +204,17 @@ impl AstNode {
                     Self::get_next_token_from_iter(token_iter)?;
 
                     let expression = Self::parse_expression(token_iter)?;
-                    statement = Self::Return{expression: Box::new(expression)};
-                } 
-                "int" => { // variable assignment
+                    statement = Self::Return {
+                        expression: Box::new(expression),
+                    };
+                }
+                "int" => {
+                    // variable assignment
                     // advance iterator past "int"
                     Self::get_next_token_from_iter(token_iter)?;
-                    let TokenType::Identifier(variable_name) = Self::get_next_token_from_iter(token_iter)? else {
+                    let TokenType::Identifier(variable_name) =
+                        Self::get_next_token_from_iter(token_iter)?
+                    else {
                         return Err(anyhow!("int keyword must be followed by string identifier for variable declaration"));
                     };
 
@@ -215,7 +227,10 @@ impl AstNode {
                         expression = Some(Box::new(Self::parse_expression(token_iter)?));
                     }
 
-                    statement = Self::Declare { variable: variable_name.clone(), expression }
+                    statement = Self::Declare {
+                        variable: variable_name.clone(),
+                        expression,
+                    }
                 }
                 _ => {
                     // parse as expression
@@ -249,11 +264,14 @@ impl AstNode {
 
                 // parse expression
                 let expression = Self::parse_expression(token_iter)?;
-                return Ok(Self::Assign { variable: variable_name.clone(), expression: Box::new(expression)})
+                return Ok(Self::Assign {
+                    variable: variable_name.clone(),
+                    expression: Box::new(expression),
+                });
             } else {
                 // do nothing
             }
-        }    
+        }
         // not an assignment
         Self::parse_logical_or_exp(token_iter)
     }
@@ -261,7 +279,7 @@ impl AstNode {
     fn parse_logical_or_exp(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // <exp> ::=  <logical-and-exp> { "||" <logical-and-exp> }
         let mut logical_or_exp = Self::parse_logical_and_exp(token_iter)?;
-        
+
         // keep parsing subsequent terms, wrapping each new one around old ones
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         while let Some(TokenType::OR) = next_token {
@@ -269,10 +287,10 @@ impl AstNode {
             let token = Self::get_next_token_from_iter(token_iter)?;
 
             let next_logical_or_exp = Self::parse_logical_and_exp(token_iter)?;
-            logical_or_exp = AstNode::BinaryOp{ 
-                operator: Operator::get_binary_op_from_token(token)?, 
-                expression: Box::new(logical_or_exp), 
-                next_expression: Box::new(next_logical_or_exp)
+            logical_or_exp = AstNode::BinaryOp {
+                operator: Operator::get_binary_op_from_token(token)?,
+                expression: Box::new(logical_or_exp),
+                next_expression: Box::new(next_logical_or_exp),
             };
 
             next_token = token_iter.peek();
@@ -284,7 +302,7 @@ impl AstNode {
     fn parse_logical_and_exp(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // <logical-and-exp> ::= <equality-exp> { "&&" <equality-exp> }
         let mut logical_and_exp = Self::parse_equality_exp(token_iter)?;
-        
+
         // keep parsing subsequent terms, wrapping each new one around old ones
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         while let Some(TokenType::AND) = next_token {
@@ -292,23 +310,22 @@ impl AstNode {
             let token = Self::get_next_token_from_iter(token_iter)?;
 
             let next_logical_and_exp = Self::parse_equality_exp(token_iter)?;
-            logical_and_exp = AstNode::BinaryOp{ 
-                operator: Operator::get_binary_op_from_token(token)?, 
-                expression: Box::new(logical_and_exp), 
-                next_expression: Box::new(next_logical_and_exp)
+            logical_and_exp = AstNode::BinaryOp {
+                operator: Operator::get_binary_op_from_token(token)?,
+                expression: Box::new(logical_and_exp),
+                next_expression: Box::new(next_logical_and_exp),
             };
 
             next_token = token_iter.peek();
         }
 
         Ok(logical_and_exp)
-
     }
 
     fn parse_equality_exp(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // <equality-exp> ::= <relational-exp> { ("!=" | "==") <relational-exp> }
         let mut equality_exp = Self::parse_relational_exp(token_iter)?;
-        
+
         // keep parsing subsequent terms, wrapping each new one around old ones
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         while let Some(TokenType::Equal | TokenType::NotEqual) = next_token {
@@ -316,10 +333,10 @@ impl AstNode {
             let token = Self::get_next_token_from_iter(token_iter)?;
 
             let next_equality_exp = Self::parse_relational_exp(token_iter)?;
-            equality_exp = AstNode::BinaryOp{ 
-                operator: Operator::get_binary_op_from_token(token)?, 
-                expression: Box::new(equality_exp), 
-                next_expression: Box::new(next_equality_exp)
+            equality_exp = AstNode::BinaryOp {
+                operator: Operator::get_binary_op_from_token(token)?,
+                expression: Box::new(equality_exp),
+                next_expression: Box::new(next_equality_exp),
             };
 
             next_token = token_iter.peek();
@@ -331,20 +348,24 @@ impl AstNode {
     fn parse_relational_exp(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // <relational-exp> ::= <additive-exp> { ("<" | ">" | "<=" | ">=") <additive-exp> }
         let mut additive_exp = Self::parse_additive_exp(token_iter)?;
-        
+
         // keep parsing subsequent terms, wrapping each new one around old ones
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         while let Some(
-            TokenType::LessThan | TokenType::GreaterThan | TokenType::LessThanOrEqual | TokenType::GreaterThanOrEqual
-        ) = next_token {
+            TokenType::LessThan
+            | TokenType::GreaterThan
+            | TokenType::LessThanOrEqual
+            | TokenType::GreaterThanOrEqual,
+        ) = next_token
+        {
             // advance the iterator (token = *next_token)
             let token = Self::get_next_token_from_iter(token_iter)?;
 
             let next_additive_exp = Self::parse_additive_exp(token_iter)?;
-            additive_exp = AstNode::BinaryOp{ 
-                operator: Operator::get_binary_op_from_token(token)?, 
-                expression: Box::new(additive_exp), 
-                next_expression: Box::new(next_additive_exp)
+            additive_exp = AstNode::BinaryOp {
+                operator: Operator::get_binary_op_from_token(token)?,
+                expression: Box::new(additive_exp),
+                next_expression: Box::new(next_additive_exp),
             };
 
             next_token = token_iter.peek();
@@ -364,9 +385,9 @@ impl AstNode {
             let token = Self::get_next_token_from_iter(token_iter)?;
 
             let next_term = Self::parse_term(token_iter)?;
-            term = AstNode::BinaryOp{ 
-                operator: Operator::get_binary_op_from_token(token)?, 
-                expression: Box::new(term), 
+            term = AstNode::BinaryOp {
+                operator: Operator::get_binary_op_from_token(token)?,
+                expression: Box::new(term),
                 next_expression: Box::new(next_term),
             };
 
@@ -375,7 +396,7 @@ impl AstNode {
 
         Ok(term)
     }
-    
+
     fn parse_term(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // term: operand of addition/subtraction
         // <term> ::= <factor> { ("*" | "/") <factor> }
@@ -389,8 +410,8 @@ impl AstNode {
             let token = Self::get_next_token_from_iter(token_iter)?;
 
             let next_factor = Self::parse_factor(token_iter)?;
-            factor = AstNode::BinaryOp{ 
-                operator: Operator::get_binary_op_from_token(token)?, 
+            factor = AstNode::BinaryOp {
+                operator: Operator::get_binary_op_from_token(token)?,
                 expression: Box::new(factor),
                 next_expression: Box::new(next_factor),
             };
@@ -430,43 +451,59 @@ impl AstNode {
                                 break;
                             }
                             // parse comma if expression list isn't over
-                            let TokenType::Comma = Self::get_next_token_from_iter(token_iter)? else {
-                                return Err(anyhow!("Function call params must be delineated with commas"))
+                            let TokenType::Comma = Self::get_next_token_from_iter(token_iter)?
+                            else {
+                                return Err(anyhow!(
+                                    "Function call params must be delineated with commas"
+                                ));
                             };
                             // parse next expression
                             let exp = Self::parse_expression(token_iter)?;
                             parameters.push(Box::new(exp));
                         }
-                        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
+                        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)?
+                        else {
                             // this should not happen: loop breaks once closed parens is found
-                            return Err(anyhow!("Function call missing closed parens"))
+                            return Err(anyhow!("Function call missing closed parens"));
                         };
                     }
-                    Ok(Self::FunctionCall { function_name: identifier.clone(), parameters })
+                    Ok(Self::FunctionCall {
+                        function_name: identifier.clone(),
+                        parameters,
+                    })
                 } else {
                     // factor can be local variable
-                    Ok(Self::Variable { variable: identifier.clone() })
+                    Ok(Self::Variable {
+                        variable: identifier.clone(),
+                    })
                 }
             }
             TokenType::OpenParens => {
                 let expression = Self::parse_expression(token_iter)?;
                 let closed_parens = Self::get_next_token_from_iter(token_iter)?;
                 let TokenType::ClosedParens = closed_parens else {
-                    return Err(anyhow!("Missing closed parentheses"))
+                    return Err(anyhow!("Missing closed parentheses"));
                 };
                 Ok(expression)
             }
-            TokenType::IntLiteral(constant) => Ok(Self::Constant { constant: *constant }),
-            TokenType::Minus | TokenType::BitwiseComplement | TokenType::LogicalNegation  => {
+            TokenType::IntLiteral(constant) => Ok(Self::Constant {
+                constant: *constant,
+            }),
+            TokenType::Minus | TokenType::BitwiseComplement | TokenType::LogicalNegation => {
                 let nested_expression = Self::parse_factor(token_iter)?;
                 let operator = Operator::get_unary_op_from_token(token)?;
-                Ok(Self::UnaryOp { operator, factor: Box::new(nested_expression)})
-            },
-            _ => Err(anyhow!("Could not parse factor"))
+                Ok(Self::UnaryOp {
+                    operator,
+                    factor: Box::new(nested_expression),
+                })
+            }
+            _ => Err(anyhow!("Could not parse factor")),
         }
     }
 
-    fn get_next_token_from_iter<'a>(token_iter: &mut PeekNth<Iter<'a, TokenType>>) -> anyhow::Result<&'a TokenType>{
+    fn get_next_token_from_iter<'a>(
+        token_iter: &mut PeekNth<Iter<'a, TokenType>>,
+    ) -> anyhow::Result<&'a TokenType> {
         token_iter.next().context(anyhow!("no next token"))
     }
 }
@@ -487,16 +524,17 @@ mod tests {
             TokenType::IntLiteral(3),
             TokenType::ClosedParens,
         ];
-        let function: anyhow::Result<AstNode> = AstNode::parse_factor(&mut peek_nth(token_vec.iter()));
+        let function: anyhow::Result<AstNode> =
+            AstNode::parse_factor(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            function.unwrap(), 
+            function.unwrap(),
             AstNode::FunctionCall {
-                function_name: "main".into(), 
+                function_name: "main".into(),
                 parameters: vec![
                     Box::new(AstNode::Constant { constant: 1 }),
                     Box::new(AstNode::Constant { constant: 2 }),
                     Box::new(AstNode::Constant { constant: 3 }),
-                ], 
+                ],
             }
         );
     }
@@ -504,27 +542,24 @@ mod tests {
     #[test]
     fn test_parse_and_or_equality() {
         let token_vec = vec![
-            TokenType::IntLiteral(2), 
-            TokenType::Equal, 
-            TokenType::IntLiteral(2), 
-            TokenType::OR, 
-            TokenType::IntLiteral(0), 
+            TokenType::IntLiteral(2),
+            TokenType::Equal,
+            TokenType::IntLiteral(2),
+            TokenType::OR,
+            TokenType::IntLiteral(0),
         ];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::BinaryOp { 
+            exp.unwrap(),
+            AstNode::BinaryOp {
                 operator: Operator::OR,
-                expression: Box::new(
-                    AstNode::BinaryOp { 
-                        operator: Operator::Equal, 
-                        expression: Box::new( AstNode::Constant { constant: 2 } ), 
-                        next_expression: Box::new( AstNode::Constant { constant: 2 }),
-                    }
-                ),
-                next_expression: Box::new(
-                    AstNode::Constant { constant: 0 }
-                ),
+                expression: Box::new(AstNode::BinaryOp {
+                    operator: Operator::Equal,
+                    expression: Box::new(AstNode::Constant { constant: 2 }),
+                    next_expression: Box::new(AstNode::Constant { constant: 2 }),
+                }),
+                next_expression: Box::new(AstNode::Constant { constant: 0 }),
             }
         )
     }
@@ -532,55 +567,62 @@ mod tests {
     #[test]
     fn test_parse_binary_op_and_or() {
         let token_vec = vec![
-            TokenType::IntLiteral(1), 
+            TokenType::IntLiteral(1),
             TokenType::OR,
             TokenType::IntLiteral(2),
             TokenType::AND,
-            TokenType::IntLiteral(3)
+            TokenType::IntLiteral(3),
         ];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::BinaryOp { 
+            exp.unwrap(),
+            AstNode::BinaryOp {
                 operator: Operator::OR,
-                expression: Box::new(
-                    AstNode::Constant { constant: 1 }
-                ),
-                next_expression: Box::new(
-                    AstNode::BinaryOp { 
-                        operator: Operator::AND, 
-                        expression: Box::new( AstNode::Constant { constant: 2 } ), 
-                        next_expression: Box::new( AstNode::Constant { constant: 3 }),
-                    }
-                ),
+                expression: Box::new(AstNode::Constant { constant: 1 }),
+                next_expression: Box::new(AstNode::BinaryOp {
+                    operator: Operator::AND,
+                    expression: Box::new(AstNode::Constant { constant: 2 }),
+                    next_expression: Box::new(AstNode::Constant { constant: 3 }),
+                }),
             }
         )
     }
 
     #[test]
     fn test_parse_binary_op_subtraction() {
-        let token_vec = vec![TokenType::IntLiteral(1), TokenType::Minus, TokenType::IntLiteral(2)];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let token_vec = vec![
+            TokenType::IntLiteral(1),
+            TokenType::Minus,
+            TokenType::IntLiteral(2),
+        ];
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::BinaryOp { 
-                operator: Operator::Subtraction, 
-                expression: Box::new( AstNode::Constant { constant: 1 } ), 
-                next_expression: Box::new( AstNode::Constant { constant: 2 }),
+            exp.unwrap(),
+            AstNode::BinaryOp {
+                operator: Operator::Subtraction,
+                expression: Box::new(AstNode::Constant { constant: 1 }),
+                next_expression: Box::new(AstNode::Constant { constant: 2 }),
             },
         )
     }
 
     #[test]
     fn test_parse_binary_op_multiplication() {
-        let token_vec = vec![TokenType::IntLiteral(1), TokenType::Multiplication, TokenType::IntLiteral(2)];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let token_vec = vec![
+            TokenType::IntLiteral(1),
+            TokenType::Multiplication,
+            TokenType::IntLiteral(2),
+        ];
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::BinaryOp { 
-                operator: Operator::Multiplication, 
-                expression: Box::new( AstNode::Constant { constant: 1 } ), 
-                next_expression: Box::new( AstNode::Constant { constant: 2 }),
+            exp.unwrap(),
+            AstNode::BinaryOp {
+                operator: Operator::Multiplication,
+                expression: Box::new(AstNode::Constant { constant: 1 }),
+                next_expression: Box::new(AstNode::Constant { constant: 2 }),
             },
         )
     }
@@ -589,25 +631,24 @@ mod tests {
     fn test_parse_binary_op_nested_add_multiply() {
         // 1 + 2 * 3
         let token_vec = vec![
-            TokenType::IntLiteral(1), 
-            TokenType::Addition, 
-            TokenType::IntLiteral(2), 
-            TokenType::Multiplication, 
+            TokenType::IntLiteral(1),
+            TokenType::Addition,
+            TokenType::IntLiteral(2),
+            TokenType::Multiplication,
             TokenType::IntLiteral(3),
         ];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::BinaryOp { 
-                operator: Operator::Addition, 
-                expression: Box::new( AstNode::Constant { constant: 1 } ), 
-                next_expression: Box::new( 
-                    AstNode::BinaryOp { 
-                        operator: Operator::Multiplication,
-                        expression: Box::new( AstNode::Constant { constant: 2 }),
-                        next_expression: Box::new( AstNode::Constant { constant: 3 }),
-                    }
-                ),
+            exp.unwrap(),
+            AstNode::BinaryOp {
+                operator: Operator::Addition,
+                expression: Box::new(AstNode::Constant { constant: 1 }),
+                next_expression: Box::new(AstNode::BinaryOp {
+                    operator: Operator::Multiplication,
+                    expression: Box::new(AstNode::Constant { constant: 2 }),
+                    next_expression: Box::new(AstNode::Constant { constant: 3 }),
+                }),
             },
         )
     }
@@ -617,26 +658,25 @@ mod tests {
         // (1 + 2) * 3
         let token_vec = vec![
             TokenType::OpenParens,
-            TokenType::IntLiteral(1), 
-            TokenType::Addition, 
-            TokenType::IntLiteral(2), 
+            TokenType::IntLiteral(1),
+            TokenType::Addition,
+            TokenType::IntLiteral(2),
             TokenType::ClosedParens,
-            TokenType::Multiplication, 
+            TokenType::Multiplication,
             TokenType::IntLiteral(3),
         ];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::BinaryOp { 
-                operator: Operator::Multiplication, 
-                expression: Box::new(
-                    AstNode::BinaryOp { 
-                        operator: Operator::Addition,
-                        expression: Box::new( AstNode::Constant { constant: 1 }),
-                        next_expression: Box::new( AstNode::Constant { constant: 2 }),
-                    }
-                ),
-                next_expression: Box::new( AstNode::Constant { constant: 3 } ),
+            exp.unwrap(),
+            AstNode::BinaryOp {
+                operator: Operator::Multiplication,
+                expression: Box::new(AstNode::BinaryOp {
+                    operator: Operator::Addition,
+                    expression: Box::new(AstNode::Constant { constant: 1 }),
+                    next_expression: Box::new(AstNode::Constant { constant: 2 }),
+                }),
+                next_expression: Box::new(AstNode::Constant { constant: 3 }),
             },
         )
     }
@@ -644,11 +684,12 @@ mod tests {
     #[test]
     fn test_parse_unary_op() {
         let token_vec = vec![TokenType::BitwiseComplement, TokenType::IntLiteral(2)];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::UnaryOp { 
-                operator: Operator::BitwiseComplement, 
+            exp.unwrap(),
+            AstNode::UnaryOp {
+                operator: Operator::BitwiseComplement,
                 factor: Box::new(AstNode::Constant { constant: 2 }),
             }
         );
@@ -656,20 +697,21 @@ mod tests {
 
     #[test]
     fn test_parse_unary_op_nested() {
-        let token_vec = vec![TokenType::BitwiseComplement, TokenType::BitwiseComplement, TokenType::IntLiteral(2)];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        let token_vec = vec![
+            TokenType::BitwiseComplement,
+            TokenType::BitwiseComplement,
+            TokenType::IntLiteral(2),
+        ];
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
         assert_eq!(
-            exp.unwrap(), 
-            AstNode::UnaryOp { 
-                operator: Operator::BitwiseComplement, 
-                factor: Box::new(
-                    AstNode::UnaryOp { 
-                        operator: Operator::BitwiseComplement, 
-                        factor: Box::new(
-                            AstNode::Constant { constant: 2 }
-                        ),
-                    },
-                ),
+            exp.unwrap(),
+            AstNode::UnaryOp {
+                operator: Operator::BitwiseComplement,
+                factor: Box::new(AstNode::UnaryOp {
+                    operator: Operator::BitwiseComplement,
+                    factor: Box::new(AstNode::Constant { constant: 2 }),
+                },),
             }
         );
     }
@@ -677,32 +719,54 @@ mod tests {
     #[test]
     fn test_parse_constant() {
         let token_vec = vec![TokenType::IntLiteral(2)];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
-        assert_eq!(exp.unwrap(), AstNode::Constant{constant: 2});
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        assert_eq!(exp.unwrap(), AstNode::Constant { constant: 2 });
     }
 
     #[test]
     fn test_parse_local_variable() {
         let token_vec = vec![TokenType::Identifier("a".into())];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
-        assert_eq!(exp.unwrap(), AstNode::Variable{variable: "a".into()});
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        assert_eq!(
+            exp.unwrap(),
+            AstNode::Variable {
+                variable: "a".into()
+            }
+        );
     }
 
     #[test]
     fn test_parse_assignment() {
-        let token_vec = vec![TokenType::Identifier("a".into()), TokenType::Assignment, TokenType::IntLiteral(2)];
-        let exp: anyhow::Result<AstNode> = AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
-        assert_eq!(exp.unwrap(), AstNode::Assign{variable: "a".into(), expression: Box::new(AstNode::Constant { constant: 2 })});
+        let token_vec = vec![
+            TokenType::Identifier("a".into()),
+            TokenType::Assignment,
+            TokenType::IntLiteral(2),
+        ];
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        assert_eq!(
+            exp.unwrap(),
+            AstNode::Assign {
+                variable: "a".into(),
+                expression: Box::new(AstNode::Constant { constant: 2 })
+            }
+        );
     }
 
     #[test]
     fn test_parse_statement() {
-        let token_vec = vec![TokenType::Keyword("return".into()), TokenType::IntLiteral(2), TokenType::Semicolon];
-        let statement: anyhow::Result<AstNode> = AstNode::parse_statement(&mut peek_nth(token_vec.iter()));
+        let token_vec = vec![
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+        ];
+        let statement: anyhow::Result<AstNode> =
+            AstNode::parse_statement(&mut peek_nth(token_vec.iter()));
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        assert_eq!(statement.unwrap(), AstNode::Return{expression});
+        assert_eq!(statement.unwrap(), AstNode::Return { expression });
     }
-
 
     #[test]
     fn test_parse_function() {
@@ -715,22 +779,20 @@ mod tests {
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::OpenBrace,
-            TokenType::Keyword("return".into()), 
-            TokenType::IntLiteral(2), TokenType::Semicolon,
-            TokenType::ClosedBrace
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+            TokenType::ClosedBrace,
         ];
-        let function: anyhow::Result<AstNode> = AstNode::parse_function(&mut peek_nth(token_vec.iter()));
+        let function: anyhow::Result<AstNode> =
+            AstNode::parse_function(&mut peek_nth(token_vec.iter()));
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement = Box::new(AstNode::Return {expression});
+        let statement = Box::new(AstNode::Return { expression });
         assert_eq!(
-            function.unwrap(), 
-            AstNode::Function { 
-                function_name: "main".into(), 
-                parameters: vec![
-                    "param1".into(), 
-                    "param2".into(), 
-                    "param3".into()
-                ], 
+            function.unwrap(),
+            AstNode::Function {
+                function_name: "main".into(),
+                parameters: vec!["param1".into(), "param2".into(), "param3".into()],
                 statement_list: Some(vec![statement])
             }
         );
@@ -748,50 +810,35 @@ mod tests {
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::Semicolon,
-            // main function definition    
+            // main function definition
             TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
             TokenType::OpenParens,
             TokenType::ClosedParens,
             TokenType::OpenBrace,
-            TokenType::Keyword("return".into()), 
-            TokenType::IntLiteral(2), TokenType::Semicolon,
-            TokenType::ClosedBrace
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+            TokenType::ClosedBrace,
         ];
 
         let program: anyhow::Result<AstNode> = AstNode::parse(&token_vec);
         assert_eq!(
-            program.unwrap(), 
-            AstNode::Program { 
+            program.unwrap(),
+            AstNode::Program {
                 function_list: vec![
-                    Box::new(
-                        AstNode::Function { 
-                            function_name: "helper".into(), 
-                            parameters: vec![
-                                "param1".into(),
-                                "param2".into(),
-                                "param3".into(),
-                            ], 
-                            statement_list: None,
-                        }
-                    ),
-                    Box::new(
-                        AstNode::Function { 
-                            function_name: "main".into(), 
-                            parameters: vec![], 
-                            statement_list: Some(
-                                vec![
-                                    Box::new(
-                                        AstNode::Return { 
-                                            expression: Box::new(
-                                                AstNode::Constant{ constant: 2 }
-                                            ),
-                                        },
-                                    ),
-                                ],
-                            )
-                        }
-                    ),
+                    Box::new(AstNode::Function {
+                        function_name: "helper".into(),
+                        parameters: vec!["param1".into(), "param2".into(), "param3".into(),],
+                        statement_list: None,
+                    }),
+                    Box::new(AstNode::Function {
+                        function_name: "main".into(),
+                        parameters: vec![],
+                        statement_list: Some(vec![Box::new(AstNode::Return {
+                            expression: Box::new(AstNode::Constant { constant: 2 }),
+                        },),],)
+                    }),
                 ]
             }
         );
@@ -808,36 +855,31 @@ mod tests {
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::OpenBrace,
-            TokenType::Identifier("a".into()), 
-            TokenType::Equal, 
-            TokenType::IntLiteral(1), 
+            TokenType::Identifier("a".into()),
+            TokenType::Equal,
+            TokenType::IntLiteral(1),
             TokenType::Semicolon,
-            TokenType::Keyword("return".into()), 
-            TokenType::IntLiteral(2), 
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
             TokenType::Semicolon,
-            TokenType::ClosedBrace
+            TokenType::ClosedBrace,
         ];
-        let function: anyhow::Result<AstNode> = AstNode::parse_function(&mut peek_nth(token_vec.iter()));
+        let function: anyhow::Result<AstNode> =
+            AstNode::parse_function(&mut peek_nth(token_vec.iter()));
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        let statement_1 = Box::new(AstNode::BinaryOp { 
-            operator: Operator::Equal, 
-            expression: Box::new(
-                AstNode::Variable { variable: "a".into() }
-            ),
-            next_expression: Box::new(
-                AstNode::Constant { constant: 1 }
-            ),
+        let statement_1 = Box::new(AstNode::BinaryOp {
+            operator: Operator::Equal,
+            expression: Box::new(AstNode::Variable {
+                variable: "a".into(),
+            }),
+            next_expression: Box::new(AstNode::Constant { constant: 1 }),
         });
-        let statement_2 = Box::new(AstNode::Return {expression});
+        let statement_2 = Box::new(AstNode::Return { expression });
         assert_eq!(
-            function.unwrap(), 
-            AstNode::Function { 
-                function_name: "main".into(), 
-                parameters: vec![
-                    "param1".into(), 
-                    "param2".into(), 
-                    "param3".into()
-                ], 
+            function.unwrap(),
+            AstNode::Function {
+                function_name: "main".into(),
+                parameters: vec!["param1".into(), "param2".into(), "param3".into()],
                 statement_list: Some(vec![statement_1, statement_2])
             }
         );

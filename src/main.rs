@@ -1,5 +1,6 @@
 mod lexer;
 mod parser;
+mod validation;
 mod codegen;
 
 use std::fs;
@@ -7,6 +8,7 @@ use std::path::Path;
 
 use anyhow::anyhow;
 use clap::Parser;
+use validation::Validation;
 
 use crate::lexer::TokenType;
 use crate::parser::AstNode;
@@ -45,6 +47,9 @@ fn main() -> anyhow::Result<()> {
     };
     let lexed: Vec<TokenType> = TokenType::lex(&contents[..])?;
     let parsed: AstNode = AstNode::parse(&lexed[..])?;
+
+    let mut validation = Validation::new();
+    validation.validate_ast(&parsed)?;
 
     let mut codegen = Codegen::new();
     let generated: String = codegen.codegen(parsed)?;

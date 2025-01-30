@@ -21,6 +21,7 @@ pub enum TokenType {
     Division,
     AND,
     OR,
+    // == has to be before = for regex to match
     Equal,
     // != has to be before ! for regex to match
     NotEqual,
@@ -32,6 +33,9 @@ pub enum TokenType {
     Minus,
     BitwiseComplement,
     LogicalNegation,
+    Assignment,
+    // TODO: add tokens from stages 6-8
+    Comma,
 }
 
 impl TokenType {
@@ -92,6 +96,8 @@ impl TokenType {
             Self::LessThanOrEqual => r"<=",
             Self::GreaterThan => r">",
             Self::GreaterThanOrEqual => r">=",
+            Self::Assignment => r"=",
+            Self::Comma => r",",
         }
     }
 
@@ -177,6 +183,17 @@ mod tests {
             TokenType::LessThanOrEqual,
             TokenType::GreaterThan,
             TokenType::GreaterThanOrEqual
+        ];
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_lex_stage_5_assignment() {
+        let contents = "
+            =
+        ";
+        let expected = vec![
+            TokenType::Assignment
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }

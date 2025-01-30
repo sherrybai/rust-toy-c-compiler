@@ -41,24 +41,23 @@ impl Validation {
                     self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
                 },
                 Some(statement_list) => {
+                    // function definition
+                    // cannot have two function definitions
+                    if self.function_is_defined.contains(function_name) {
+                        return Err(anyhow!("Found duplicate function definitions"));
+                    }
+                    if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
+                        // cannot have definition with different number of params as declaration
+                        if parameters.len() != *param_count {
+                            return Err(anyhow!("Defined and declared functions have different number of arguments"));
+                        }
+                    } else {
+                        // function declared and defined at the same time
+                        self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
+                    }
+                    self.function_is_defined.insert(function_name.clone());
+
                     for statement_node in statement_list {
-                        // function definition
-                        // cannot have two function definitions
-                        if self.function_is_defined.contains(function_name) {
-                            return Err(anyhow!("Found duplicate function definitions"));
-                        }
-                        if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
-                            // cannot have definition with different number of params as declaration
-                            if parameters.len() != *param_count {
-                                return Err(anyhow!("Defined and declared functions have different number of arguments"));
-                            }
-                        } else {
-                            // function declared and defined at the same time
-                            self.function_name_to_arg_count.insert(function_name.clone(), parameters.len());
-                        }
-
-                        self.function_is_defined.insert(function_name.clone());
-
                         // traverse function to validate expressions
                         match **statement_node {
                             AstNode::Return { ref expression } => {
@@ -103,10 +102,17 @@ impl Validation {
             AstNode::UnaryOp { operator: _, factor } => {
                 self.validate_expression(factor)?;
             },
+            AstNode::Assign { variable: _, expression } => {
+                self.validate_expression(expression)?;
+            },
+            AstNode::Variable { variable: _  } => {
+                // do nothing
+            },
             AstNode::Constant { constant: _  } => {
                 // do nothing
             },
             _ => {
+                println!("{:?}", node);
                 return Err(anyhow!("Invalid expression node variant"));
             }
         }

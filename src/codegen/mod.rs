@@ -104,8 +104,9 @@ impl Codegen {
 
         // need to restore stack pointer
         let stack_pointer_offset = (-self.stack_offset_bytes + 12) / 16 * 16; // take next highest 16 byte value
-        result.push_str(&Self::format_instruction("add", vec!["sp", "sp", &format!("{}", stack_pointer_offset)[..]]));
-        
+        if stack_pointer_offset != 0 {
+            result.push_str(&Self::format_instruction("add", vec!["sp", "sp", &format!("{}", stack_pointer_offset)[..]]));
+        }
         // read frame pointer and link register (return address) from stack
         // stack pointer remains 16 byte aligned
         result.push_str(&Self::format_instruction("ldp", vec!["x29", "x30", "[sp]", "16"]));
@@ -554,6 +555,7 @@ mod tests {
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
                     mov	w0, 0
+                    add	sp, sp, 16
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -627,6 +629,7 @@ mod tests {
                     mov	w0, #2
                     str	w0, [sp, 12]
                     mov	w0, 0
+                    add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -681,6 +684,7 @@ mod tests {
                     ldr	w0, [sp, 16]
                     ldr	w0, [sp, 12]
                     mov	w0, 0
+                    add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
             "

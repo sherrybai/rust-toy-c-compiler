@@ -73,7 +73,7 @@ pub enum AstNode {
         expression: Box<Self>,
     },
     If {
-        expression: Box<Self>,
+        condition: Box<Self>,
         if_statement: Box<Self>,
         else_statement: Option<Box<Self>>,
     },
@@ -97,6 +97,11 @@ pub enum AstNode {
     },
     Variable {
         variable: String,
+    },
+    Conditional {
+        condition: Box<Self>,
+        if_expression: Box<Self>,
+        else_expression: Box<Self>,
     },
     FunctionCall {
         function_name: String,
@@ -294,7 +299,7 @@ impl AstNode {
                         }
                     }
 
-                    statement = Self::If { expression, if_statement, else_statement }
+                    statement = Self::If { condition: expression, if_statement, else_statement }
                 },
                 _ => {
                     return Err(anyhow!("Unknown keyword"));
@@ -314,7 +319,7 @@ impl AstNode {
     }
 
     fn parse_expression(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
-        // <exp> ::= <id> "=" <exp> | <logical-or-exp>
+        // <exp> ::= <id> "=" <exp> | <conditional-exp>
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         if let Some(TokenType::Identifier(variable_name)) = next_token {
             // peek forward twice to check for '='
@@ -335,7 +340,35 @@ impl AstNode {
             }
         }
         // not an assignment
-        Self::parse_logical_or_exp(token_iter)
+        Self::parse_conditional_exp(token_iter)
+    }
+
+    fn parse_conditional_exp(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <conditional-exp> ::= <logical-or-exp> [ "?" <exp> ":" <conditional-exp> ]
+        let logical_or_exp = Self::parse_logical_or_exp(token_iter)?;
+
+        // parse question mark
+        if let Some(TokenType::QuestionMark) = token_iter.peek() {
+            // advance iterator
+            Self::get_next_token_from_iter(token_iter)?;
+            // ternary operator
+            let if_expression: AstNode = Self::parse_expression(token_iter)?;
+            let else_expression: AstNode;
+            if let TokenType::Colon = Self::get_next_token_from_iter(token_iter)? {
+                else_expression = Self::parse_conditional_exp(token_iter)?;
+            } else {
+                return Err(anyhow!("Missing colon in ternary operator expression"))
+            }
+            Ok(
+                AstNode::Conditional { 
+                    condition: Box::new(logical_or_exp), 
+                    if_expression: Box::new(if_expression), 
+                    else_expression: Box::new(else_expression),
+                }
+            )
+        } else {
+            Ok(logical_or_exp)
+        }
     }
 
     fn parse_logical_or_exp(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
@@ -779,6 +812,27 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_ternary_operator() {
+        let token_vec = vec![
+            TokenType::IntLiteral(1),
+            TokenType::QuestionMark,
+            TokenType::IntLiteral(2),
+            TokenType::Colon,
+            TokenType::IntLiteral(3),
+        ];
+        let exp: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        assert_eq!(
+            exp.unwrap(),
+            AstNode::Conditional {
+                condition: Box::new(AstNode::Constant { constant: 1 }),
+                if_expression: Box::new(AstNode::Constant { constant: 2 }),
+                else_expression: Box::new(AstNode::Constant { constant: 3 }),
+            },
+        );
+    }
+
+    #[test]
     fn test_parse_constant() {
         let token_vec = vec![TokenType::IntLiteral(2)];
         let exp: anyhow::Result<AstNode> =
@@ -853,7 +907,7 @@ mod tests {
             next_expression: Box::new(AstNode::Constant { constant: 2 }),
         };
         let if_statement = AstNode::Return { expression: Box::new(AstNode::Constant { constant: 2 }) };        
-        assert_eq!(statement.unwrap(), AstNode::If { expression: Box::new(condition), if_statement: Box::new(if_statement), else_statement: None });
+        assert_eq!(statement.unwrap(), AstNode::If { condition: Box::new(condition), if_statement: Box::new(if_statement), else_statement: None });
     }
 
     #[test]

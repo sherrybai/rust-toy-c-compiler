@@ -27,7 +27,7 @@ impl Validation {
             let AstNode::Function {
                 ref function_name,
                 ref parameters,
-                statement_list: ref statement,
+                block_item_list: ref statement,
             } = function
             else {
                 return Err(anyhow!("Program function list contains non-function"));
@@ -161,7 +161,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -177,14 +177,14 @@ mod tests {
         let function_1 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![AstNode::Return {
+            block_item_list: Some(vec![AstNode::Return {
                 expression: Box::new(AstNode::Constant { constant: 1 }),
             }]),
         };
         let function_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![AstNode::Return {
+            block_item_list: Some(vec![AstNode::Return {
                 expression: Box::new(AstNode::Constant { constant: 2 }),
             }]),
         };
@@ -204,12 +204,12 @@ mod tests {
         let declaration_1 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec!["a".into(), "b".into()],
-            statement_list: None,
+            block_item_list: None,
         };
         let declaration_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec!["a".into()],
-            statement_list: None,
+            block_item_list: None,
         };
         let program = AstNode::Program {
             function_list: vec![declaration_1, declaration_2],
@@ -228,12 +228,12 @@ mod tests {
         let declaration = AstNode::Function {
             function_name: "main".into(),
             parameters: vec!["a".into(), "b".into()],
-            statement_list: None,
+            block_item_list: None,
         };
         let definition = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![AstNode::Return {
+            block_item_list: Some(vec![AstNode::Return {
                 expression: Box::new(AstNode::Constant { constant: 2 }),
             }]),
         };
@@ -254,12 +254,12 @@ mod tests {
         let function_1 = AstNode::Function {
             function_name: "helper".into(),
             parameters: vec![],
-            statement_list: None,
+            block_item_list: None,
         };
         let function_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![AstNode::Return {
+            block_item_list: Some(vec![AstNode::Return {
                 expression: Box::new(AstNode::FunctionCall {
                     function_name: "helper".into(),
                     parameters: vec![],
@@ -282,12 +282,12 @@ mod tests {
         let function_1 = AstNode::Function {
             function_name: "helper".into(),
             parameters: vec!["a".into(), "b".into()],
-            statement_list: None,
+            block_item_list: None,
         };
         let function_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![AstNode::Return {
+            block_item_list: Some(vec![AstNode::Return {
                 expression: Box::new(AstNode::FunctionCall {
                     function_name: "helper".into(),
                     parameters: vec![],

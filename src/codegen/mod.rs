@@ -143,7 +143,7 @@ impl Codegen {
         let AstNode::Function {
             function_name,
             parameters,
-            statement_list,
+            block_item_list: statement_list,
         } = node
         else {
             return Err(anyhow!(
@@ -399,7 +399,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -426,7 +426,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![]),
+            block_item_list: Some(vec![]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -453,7 +453,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: None,
+            block_item_list: None,
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -476,7 +476,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -556,7 +556,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -597,7 +597,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -643,7 +643,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement_1]),
+            block_item_list: Some(vec![statement_1]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -684,7 +684,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement_1, statement_2]),
+            block_item_list: Some(vec![statement_1, statement_2]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -741,7 +741,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![
+            block_item_list: Some(vec![
                 statement_1,
                 statement_2,
                 statement_3,
@@ -838,7 +838,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![
+            block_item_list: Some(vec![
                 statement_1,
                 statement_2,
                 statement_3,

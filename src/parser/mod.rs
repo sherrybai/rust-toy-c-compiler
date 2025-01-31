@@ -62,8 +62,9 @@ pub enum AstNode {
     Function {
         function_name: String,
         parameters: Vec<String>,
-        statement_list: Option<Vec<Self>>,
+        block_item_list: Option<Vec<Self>>,
     },
+    // Statements
     Return {
         expression: Box<Self>,
     },
@@ -71,6 +72,12 @@ pub enum AstNode {
         variable: String,
         expression: Box<Self>,
     },
+    If {
+        expression: Box<Self>,
+        if_statement: Box<Self>,
+        else_statement: Option<Box<Self>>,
+    },
+    // Other block items
     Declare {
         variable: String,
         expression: Option<Box<Self>>,
@@ -126,7 +133,7 @@ impl AstNode {
             return Err(anyhow!("First token of function is not a keyword"));
         }
 
-        // Parse function name
+        // parse function name
         let function_name: String;
         if let TokenType::Identifier(s) = Self::get_next_token_from_iter(token_iter)? {
             function_name = s.to_string();
@@ -159,7 +166,7 @@ impl AstNode {
                 return Ok(Self::Function {
                     function_name,
                     parameters,
-                    statement_list: None,
+                    block_item_list: None,
                 });
             }
             TokenType::OpenBrace => {
@@ -180,7 +187,7 @@ impl AstNode {
                 Self::get_next_token_from_iter(token_iter)?;
                 break;
             } else {
-                let statement = Self::parse_statement(token_iter)?;
+                let statement = Self::parse_block_item(token_iter)?;
                 statements.push(statement);
             };
             next_token = token_iter.peek();
@@ -189,12 +196,52 @@ impl AstNode {
         Ok(Self::Function {
             function_name,
             parameters,
-            statement_list: Some(statements),
+            block_item_list: Some(statements),
         })
     }
 
+    fn parse_block_item(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <block-item> ::= <statement> | <declaration>
+        // <declaration> ::= "int" <id> [ = <exp> ] ";"
+        let mut next_token: Option<&&TokenType> = token_iter.peek();
+        if let Some(TokenType::Keyword(s)) = next_token {
+            if s == "int" {
+                // variable assignment
+                // advance iterator past "int"
+                Self::get_next_token_from_iter(token_iter)?;
+                let TokenType::Identifier(variable_name) =
+                    Self::get_next_token_from_iter(token_iter)?
+                else {
+                    return Err(anyhow!("int keyword must be followed by string identifier for variable declaration"));
+                };
+
+                // check for assignment
+                let mut expression: Option<Box<Self>> = None;
+                next_token = token_iter.peek();
+                if let Some(TokenType::Assignment) = next_token {
+                    // advance iterator past "="
+                    Self::get_next_token_from_iter(token_iter)?;
+                    expression = Some(Box::new(Self::parse_expression(token_iter)?));
+                }
+
+                // must end in semicolon
+                let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
+                    return Err(anyhow!("Statement does not end in semicolon"));
+                };
+
+                return Ok(
+                    Self::Declare {
+                        variable: variable_name.clone(),
+                        expression,
+                    }
+                )
+            }
+        }
+        Ok(Self::parse_statement(token_iter)?)
+    }
+
     fn parse_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
-        // <statement> ::= "return" <exp> ";"| <exp> ";" | "int" <id> [ = <exp> ] ";"
+        // <statement> ::= "return" <exp> ";"| <exp> ";" | "if" "(" <exp> ")" <statement> [ "else" <statement> ]
         let statement: AstNode;
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         if let Some(TokenType::Keyword(s)) = next_token {
@@ -207,45 +254,60 @@ impl AstNode {
                     statement = Self::Return {
                         expression: Box::new(expression),
                     };
-                }
-                "int" => {
-                    // variable assignment
-                    // advance iterator past "int"
-                    Self::get_next_token_from_iter(token_iter)?;
-                    let TokenType::Identifier(variable_name) =
-                        Self::get_next_token_from_iter(token_iter)?
-                    else {
-                        return Err(anyhow!("int keyword must be followed by string identifier for variable declaration"));
+                    // must end in semicolon
+                    let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
+                        return Err(anyhow!("Statement does not end in semicolon"));
                     };
+                },
+                "if" => {
+                    // advance iterator past "if"
+                    Self::get_next_token_from_iter(token_iter)?;
 
-                    // check for assignment
-                    let mut expression: Option<Box<Self>> = None;
+                    if let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? {
+                        // do nothing
+                    } else {
+                        return Err(anyhow!("if keyword must be followed by parentheses"))
+                    }
+
+                    // parse condition
+                    let expression = Box::new(Self::parse_expression(token_iter)?);
+
+                    if let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? {
+                        // do nothing
+                    } else {
+                        return Err(anyhow!("if parentheses not closed"))
+                    }
+                    
+                    // parse if statement
+                    let if_statement = Box::new(Self::parse_statement(token_iter)?);
+
+                    // optional else statement
+                    let mut else_statement: Option<Box<AstNode>> = None;
                     next_token = token_iter.peek();
-                    if let Some(TokenType::Assignment) = next_token {
-                        // advance iterator past "="
-                        Self::get_next_token_from_iter(token_iter)?;
-                        expression = Some(Box::new(Self::parse_expression(token_iter)?));
+                    if let Some(TokenType::Keyword(s)) = next_token {
+                        if s == "else" {
+                            // advance iterator past else
+                            Self::get_next_token_from_iter(token_iter)?;
+
+                            // parse else statement
+                            else_statement = Some(Box::new(Self::parse_statement(token_iter)?));
+                        }
                     }
 
-                    statement = Self::Declare {
-                        variable: variable_name.clone(),
-                        expression,
-                    }
-                }
+                    statement = Self::If { expression, if_statement, else_statement }
+                },
                 _ => {
-                    // parse as expression
                     return Err(anyhow!("Unknown keyword"));
                 }
             }
         } else {
             // parse as expression
             statement = Self::parse_expression(token_iter)?;
+            // must end in semicolon
+            let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
+                return Err(anyhow!("Statement does not end in semicolon"));
+            };
         }
-
-        // must end in semicolon
-        let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
-            return Err(anyhow!("Statement does not end in semicolon"));
-        };
 
         // return node
         Ok(statement)
@@ -769,6 +831,47 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_if_no_body() {
+        let token_vec = vec![
+            TokenType::Keyword("if".into()),
+            TokenType::OpenParens,
+            TokenType::Identifier("a".into()),
+            TokenType::Equal,
+            TokenType::IntLiteral(2),
+            TokenType::ClosedParens,
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+        ];
+        let statement: anyhow::Result<AstNode> =
+            AstNode::parse_statement(&mut peek_nth(token_vec.iter()));
+        let condition = AstNode::BinaryOp {
+            operator: Operator::Equal,
+            expression: Box::new(AstNode::Variable {
+                variable: "a".into(),
+            }),
+            next_expression: Box::new(AstNode::Constant { constant: 2 }),
+        };
+        let if_statement = AstNode::Return { expression: Box::new(AstNode::Constant { constant: 2 }) };        
+        assert_eq!(statement.unwrap(), AstNode::If { expression: Box::new(condition), if_statement: Box::new(if_statement), else_statement: None });
+    }
+
+    #[test]
+    fn test_parse_declaration() {
+        let token_vec = vec![
+            TokenType::Keyword("int".into()),
+            TokenType::Identifier("a".into()),
+            TokenType::Assignment,
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+        ];
+        let statement: anyhow::Result<AstNode> =
+            AstNode::parse_block_item(&mut peek_nth(token_vec.iter()));
+        let expression = Box::new(AstNode::Constant { constant: 2 });
+        assert_eq!(statement.unwrap(), AstNode::Declare { variable: "a".into(), expression: Some(expression) });
+    }
+
+    #[test]
     fn test_parse_function() {
         let token_vec = vec![
             TokenType::Keyword("int".into()),
@@ -793,7 +896,7 @@ mod tests {
             AstNode::Function {
                 function_name: "main".into(),
                 parameters: vec!["param1".into(), "param2".into(), "param3".into()],
-                statement_list: Some(vec![statement])
+                block_item_list: Some(vec![statement])
             }
         );
     }
@@ -830,12 +933,12 @@ mod tests {
                     AstNode::Function {
                         function_name: "helper".into(),
                         parameters: vec!["param1".into(), "param2".into(), "param3".into(),],
-                        statement_list: None,
+                        block_item_list: None,
                     },
                     AstNode::Function {
                         function_name: "main".into(),
                         parameters: vec![],
-                        statement_list: Some(vec![AstNode::Return {
+                        block_item_list: Some(vec![AstNode::Return {
                             expression: Box::new(AstNode::Constant { constant: 2 }),
                         }])
                     },
@@ -880,7 +983,7 @@ mod tests {
             AstNode::Function {
                 function_name: "main".into(),
                 parameters: vec!["param1".into(), "param2".into(), "param3".into()],
-                statement_list: Some(vec![statement_1, statement_2])
+                block_item_list: Some(vec![statement_1, statement_2])
             }
         );
     }

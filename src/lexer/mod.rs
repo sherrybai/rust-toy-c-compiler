@@ -34,7 +34,9 @@ pub enum TokenType {
     BitwiseComplement,
     LogicalNegation,
     Assignment,
-    // TODO: add tokens from stages 6-8
+    Colon,
+    QuestionMark,
+    // TODO: add tokens from stages 7-8
     Comma,
 }
 
@@ -71,13 +73,15 @@ impl TokenType {
     }
 
     pub fn to_regex_pattern(&self) -> &str {
+        // regex substrings here should not contain nested capture groups '(...)'
+        // otherwise `from_index` method will break
         match self {
             Self::OpenBrace => r"\{",
             Self::ClosedBrace => r"\}",
             Self::OpenParens => r"\(",
             Self::ClosedParens => r"\)",
             Self::Semicolon => r";",
-            Self::Keyword(_) => r"int|return",
+            Self::Keyword(_) => r"\bint\b|\breturn\b|\bif\b|\belse\b",
             Self::Identifier(_) => r"[a-zA-Z]\w*",
             Self::IntLiteral(_) => r"[0-9]+",
             Self::Minus => r"\-",
@@ -95,6 +99,8 @@ impl TokenType {
             Self::GreaterThan => r">",
             Self::GreaterThanOrEqual => r">=",
             Self::Assignment => r"=",
+            Self::Colon => r":",
+            Self::QuestionMark => r"\?",
             Self::Comma => r",",
         }
     }
@@ -192,6 +198,27 @@ mod tests {
             =
         ";
         let expected = vec![TokenType::Assignment];
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_lex_stage_6_conditionals() {
+        let contents = "
+            if
+            else
+            :
+            ?
+            iff
+            tiff
+        ";
+        let expected = vec![
+            TokenType::Keyword("if".into()), 
+            TokenType::Keyword("else".into()), 
+            TokenType::Colon, 
+            TokenType::QuestionMark,
+            TokenType::Identifier("iff".into()),
+            TokenType::Identifier("tiff".into()),
+        ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }
 }

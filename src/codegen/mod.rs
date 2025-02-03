@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 #[cfg(test)]
@@ -11,7 +11,6 @@ const INDENT: &str = "	";
 pub struct Codegen {
     stack_offset_bytes: i32,
     label_counter: u32,
-    variable_map: HashMap<String, i32>,
 }
 
 impl Codegen {
@@ -19,7 +18,6 @@ impl Codegen {
         Codegen {
             stack_offset_bytes: 0,
             label_counter: 1,
-            variable_map: HashMap::new(),
         }
     }
 
@@ -143,7 +141,7 @@ impl Codegen {
         let AstNode::Function {
             function_name,
             parameters,
-            block_item_list: statement_list,
+            compound_statement,
         } = node
         else {
             return Err(anyhow!(
@@ -152,8 +150,7 @@ impl Codegen {
         };
 
         let mut result: String = String::new();
-        let mut explicit_return: bool = false;
-        if let Some(s) = statement_list {
+        if let Some(s) = compound_statement {
             // only generate assembly for function node if it is a definition
             // (non-null function body)
 
@@ -164,19 +161,13 @@ impl Codegen {
             // set up stack frame
             result.push_str(&Self::generate_function_prologue());
 
-            for statement in s {
-                let generated_statement = self.generate_statement(statement)?;
-                result.push_str(&generated_statement);
+            let variable_map: HashMap<String, i32> = HashMap::new();
+            let generated_statement = self.generate_compound_statement(s, &variable_map)?;
+            result.push_str(&generated_statement);
 
-                if let AstNode::Return { expression: _ } = statement {
-                    explicit_return = true;
-                    break; // don't bother generating code after return
-                }
-            }
-            if !explicit_return {
-                // return 0
-                result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
-            }
+            // if there is no explicit return statement, then return 0
+            // return statements will jump over this instruction to the .return label
+            result.push_str(&Self::format_instruction("mov", vec!["w0", "#0"]));
 
             // write label for jumping to early return
             result.push_str(&format!("{}:\n", ".return"));
@@ -187,28 +178,55 @@ impl Codegen {
         Ok(result)
     }
 
-    fn generate_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
+    fn generate_compound_statement(
+        &mut self,
+        node: &AstNode,
+        variable_map: &HashMap<String, i32>,
+    ) -> anyhow::Result<String> {
+        if let AstNode::Compound { block_item_list } = node {
+            let mut result = String::new();
+
+            // new variable map, cloning from outer scope
+            let mut new_variable_map: HashMap<String, i32> = variable_map.clone();
+            // track variables in the current scope
+            let mut current_scope: HashSet<String> = HashSet::new();
+
+            for block_item in block_item_list {
+                result.push_str(&self.generate_block_item(
+                    block_item,
+                    &mut new_variable_map,
+                    &mut current_scope,
+                )?);
+            }
+            Ok(result)
+        } else {
+            Err(anyhow!("Not a compound statement"))
+        }
+    }
+
+    fn generate_block_item(
+        &mut self,
+        node: &AstNode,
+        variable_map: &mut HashMap<String, i32>,
+        current_scope: &mut HashSet<String>,
+    ) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
         match node {
-            AstNode::Return { expression } => {
-                let generated_expression: String = self.generate_expression(expression)?;
-                result.push_str(&generated_expression);
-                // jump to return label
-                result.push_str(&Self::format_instruction("b", vec![".return"]));
-            }
+            // declaration: can mutate variable map
             AstNode::Declare {
                 variable,
                 expression,
             } => {
-                if self.variable_map.contains_key(variable) {
+                if current_scope.contains(variable) {
                     return Err(anyhow!("Variable already declared"));
                 }
 
                 let generated_expression: String;
                 if let Some(nested_expression) = expression {
                     // write expression
-                    generated_expression = self.generate_expression(nested_expression)?;
+                    generated_expression =
+                        self.generate_expression(nested_expression, &variable_map)?;
                 } else {
                     // initialize variable to 0
                     generated_expression = Self::format_instruction("mov", vec!["w0", "0"]);
@@ -217,8 +235,32 @@ impl Codegen {
                 // assume value lives in w0
                 // push onto stack
                 result.push_str(&self.generate_push_instruction("w0"));
-                self.variable_map
-                    .insert(variable.clone(), self.stack_offset_bytes);
+
+                // update variable map and current scope
+                variable_map.insert(variable.clone(), self.stack_offset_bytes);
+                current_scope.insert(variable.clone());
+            }
+            // statements: cannot mutate variable map
+            _ => {
+                result.push_str(&self.generate_statement(node, &variable_map)?);
+            }
+        }
+        Ok(result)
+    }
+
+    fn generate_statement(
+        &mut self,
+        node: &AstNode,
+        variable_map: &HashMap<String, i32>,
+    ) -> anyhow::Result<String> {
+        let mut result = String::new();
+        match node {
+            AstNode::Return { expression } => {
+                let generated_expression: String =
+                    self.generate_expression(expression, variable_map)?;
+                result.push_str(&generated_expression);
+                // jump to return label
+                result.push_str(&Self::format_instruction("b", vec![".return"]));
             }
             AstNode::If {
                 condition,
@@ -226,7 +268,7 @@ impl Codegen {
                 else_statement,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(condition)?);
+                result.push_str(&self.generate_expression(condition, variable_map)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -235,25 +277,32 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_statement
-                result.push_str(&self.generate_statement(&if_statement)?);
+                result.push_str(&self.generate_statement(&if_statement, variable_map)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
 
                 // jump here to execute else_expression (if not optional)
                 result.push_str(&format!("{}:\n", label_1));
                 if let Some(node) = else_statement {
-                    result.push_str(&self.generate_statement(&node)?);
+                    result.push_str(&self.generate_statement(&node, variable_map)?);
                 }
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }
+            AstNode::Compound { block_item_list: _ } => {
+                result.push_str(&self.generate_compound_statement(node, variable_map)?);
+            }
             _ => {
-                result.push_str(&self.generate_expression(node)?);
+                result.push_str(&self.generate_expression(node, variable_map)?);
             }
         }
         Ok(result)
     }
 
-    fn generate_expression(&mut self, node: &AstNode) -> anyhow::Result<String> {
+    fn generate_expression(
+        &mut self,
+        node: &AstNode,
+        variable_map: &HashMap<String, i32>,
+    ) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
         match node {
@@ -265,14 +314,14 @@ impl Codegen {
                 ));
             }
             AstNode::Variable { variable } => {
-                if !self.variable_map.contains_key(variable) {
-                    return Err(anyhow!("Variable not declared before assignment"));
+                if !variable_map.contains_key(variable) {
+                    return Err(anyhow!("Variable not declared before read"));
                 }
-                let stack_offset = self.variable_map.get(variable).unwrap();
+                let stack_offset = variable_map.get(variable).unwrap();
                 result.push_str(&self.generate_variable_read(*stack_offset));
             }
             AstNode::UnaryOp { operator, factor } => {
-                let nested_expression = self.generate_expression(factor)?;
+                let nested_expression = self.generate_expression(factor, variable_map)?;
                 result.push_str(&nested_expression);
                 // assume previous operation moves the value to w0
                 match operator {
@@ -301,8 +350,8 @@ impl Codegen {
                 expression: term,
                 next_expression: next_term,
             } => {
-                let nested_term_1 = self.generate_expression(term)?;
-                let nested_term_2 = self.generate_expression(next_term)?;
+                let nested_term_1 = self.generate_expression(term, variable_map)?;
+                let nested_term_2 = self.generate_expression(next_term, variable_map)?;
 
                 // write instructions for term 1
                 result.push_str(&nested_term_1);
@@ -397,14 +446,14 @@ impl Codegen {
                 variable,
                 expression,
             } => {
-                if !self.variable_map.contains_key(variable) {
+                if !variable_map.contains_key(variable) {
                     return Err(anyhow!("Variable not declared before assignment"));
                 }
                 // generate expression
-                result.push_str(&self.generate_expression(expression)?);
+                result.push_str(&self.generate_expression(expression, variable_map)?);
 
                 // move w0 to location at stack offset
-                let stack_offset = self.variable_map.get(variable).unwrap();
+                let stack_offset = variable_map.get(variable).unwrap();
                 result.push_str(&self.generate_variable_assignment(*stack_offset));
             }
             AstNode::Conditional {
@@ -413,7 +462,7 @@ impl Codegen {
                 else_expression,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(condition)?);
+                result.push_str(&self.generate_expression(condition, variable_map)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -422,11 +471,11 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_expression
-                result.push_str(&self.generate_expression(&if_expression)?);
+                result.push_str(&self.generate_expression(&if_expression, variable_map)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
                 // jump here to execute else_expression
                 result.push_str(&format!("{}:\n", label_1));
-                result.push_str(&self.generate_expression(&else_expression)?);
+                result.push_str(&self.generate_expression(&else_expression, variable_map)?);
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }
@@ -451,7 +500,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -467,6 +518,9 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -478,7 +532,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -493,7 +549,8 @@ mod tests {
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -505,7 +562,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: None,
+            compound_statement: None,
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -528,7 +585,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -545,6 +604,9 @@ mod tests {
                     mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -608,7 +670,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -630,6 +694,9 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -649,7 +716,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -679,6 +748,9 @@ mod tests {
                 .L1:
                     mov	w0, 0
                 .L2:
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -695,7 +767,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement_1]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement_1],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -713,7 +787,8 @@ mod tests {
                     mov	w0, #1
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:
                     add	sp, sp, 16
                     ldp	x29, x30, [sp], 16
                     ret
@@ -736,7 +811,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement_1, statement_2]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement_1, statement_2],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -745,6 +822,57 @@ mod tests {
         let mut codegen: Codegen = Codegen::new();
         let result = codegen.codegen(program);
         assert!(result.is_err_and(|e| e.to_string() == "Variable already declared"));
+    }
+
+    #[test]
+    fn test_duplicate_variable_declaration_nested_scope_allowed() {
+        let constant_1 = Box::new(AstNode::Constant { constant: 1 });
+        let constant_2 = Box::new(AstNode::Constant { constant: 2 });
+        let statement_1 = AstNode::Declare {
+            variable: "a".into(),
+            expression: Some(constant_1),
+        };
+        let statement_2 = AstNode::Declare {
+            variable: "a".into(),
+            expression: Some(constant_2),
+        };
+        let function = AstNode::Function {
+            function_name: "main".into(),
+            parameters: vec![],
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    AstNode::Compound {
+                        block_item_list: vec![statement_2],
+                    },
+                ],
+            })),
+        };
+        let program = AstNode::Program {
+            function_list: vec![function],
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .globl _main
+                _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
+                    mov	w0, #1
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
+                    mov	w0, #2
+                    str	w0, [sp, 8]
+                    mov	w0, #0
+                .return:
+                    add	sp, sp, 16
+                    ldp	x29, x30, [sp], 16
+                    ret
+            "
+        )
     }
 
     #[test]
@@ -793,18 +921,20 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![
-                statement_1,
-                statement_2,
-                statement_3,
-                statement_4,
-                statement_5,
-                assignment_1,
-                assignment_2,
-                assignment_3,
-                assignment_4,
-                assignment_5,
-            ]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    statement_2,
+                    statement_3,
+                    statement_4,
+                    statement_5,
+                    assignment_1,
+                    assignment_2,
+                    assignment_3,
+                    assignment_4,
+                    assignment_5,
+                ],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -841,7 +971,8 @@ mod tests {
                     str	w0, [sp, 16]
                     mov	w0, #2
                     str	w0, [sp, 12]
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
@@ -890,18 +1021,20 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![
-                statement_1,
-                statement_2,
-                statement_3,
-                statement_4,
-                statement_5,
-                var_read_1,
-                var_read_2,
-                var_read_3,
-                var_read_4,
-                var_read_5,
-            ]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    statement_2,
+                    statement_3,
+                    statement_4,
+                    statement_5,
+                    var_read_1,
+                    var_read_2,
+                    var_read_3,
+                    var_read_4,
+                    var_read_5,
+                ],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -933,12 +1066,49 @@ mod tests {
                     ldr	w0, [sp, 20]
                     ldr	w0, [sp, 16]
                     ldr	w0, [sp, 12]
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:                    
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
             "
         )
+    }
+
+    #[test]
+    fn test_variable_read_nested() {
+        let statement_1 = AstNode::Declare {
+            variable: "a".into(),
+            expression: Some(Box::new(AstNode::Constant { constant: 1 })),
+        };
+        let statement_2 = AstNode::Declare {
+            variable: "b".into(),
+            expression: Some(Box::new(AstNode::Constant { constant: 1 })),
+        };
+        let var_read_2 = AstNode::Variable {
+            variable: "b".into(),
+        };
+
+        let function = AstNode::Function {
+            function_name: "main".into(),
+            parameters: vec![],
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    AstNode::Compound {
+                        block_item_list: vec![statement_2],
+                    },
+                    var_read_2,
+                ],
+            })),
+        };
+        let program = AstNode::Program {
+            function_list: vec![function],
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program);
+        assert!(result.is_err_and(|e| e.to_string() == "Variable not declared before read"));
     }
 
     #[test]
@@ -950,7 +1120,10 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_expression(&ternary_expression).unwrap();
+        let variable_map: HashMap<String, i32> = HashMap::new();
+        let result = codegen
+            .generate_expression(&ternary_expression, &variable_map)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -978,7 +1151,10 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_statement(&if_statement).unwrap();
+        let variable_map: HashMap<String, i32> = HashMap::new();
+        let result = codegen
+            .generate_statement(&if_statement, &variable_map)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -986,6 +1162,7 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
+                    b	.return
                     b	.L2
                 .L1:
                 .L2:
@@ -1007,7 +1184,10 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_statement(&if_statement).unwrap();
+        let variable_map: HashMap<String, i32> = HashMap::new();
+        let result = codegen
+            .generate_statement(&if_statement, &variable_map)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1015,9 +1195,11 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
+                    b	.return
                     b	.L2
                 .L1:
                     mov	w0, #3
+                    b	.return
                 .L2:
             "
         )

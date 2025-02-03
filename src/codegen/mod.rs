@@ -378,6 +378,25 @@ impl Codegen {
                 let stack_offset = self.variable_map.get(variable).unwrap();
                 result.push_str(&self.generate_variable_assignment(*stack_offset));
             }
+            AstNode::Conditional { condition, if_expression, else_expression } => {
+                // evaluate condition
+                result.push_str(&self.generate_expression(condition)?);
+
+                let label_1 = &format!(".L{:?}", self.label_counter);
+                let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                self.label_counter += 2;
+                // skip to label 1 if condition is false
+                result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                result.push_str(&Self::format_instruction("beq", vec![label_1]));
+                // otherwise, execute if_expression
+                result.push_str(&self.generate_expression(&if_expression)?);
+                result.push_str(&Self::format_instruction("b", vec![label_2]));
+                // jump here to execute else_expression
+                result.push_str(&format!("{}:\n", label_1));
+                result.push_str(&self.generate_expression(&else_expression)?);
+                // mark end of this block
+                result.push_str(&format!("{}:\n", label_2));
+            }
             _ => {
                 return Err(anyhow!("Malformed expression"));
             }
@@ -885,6 +904,31 @@ mod tests {
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_ternary_operator() {
+        let ternary_expression = AstNode::Conditional {
+            condition: Box::new(AstNode::Constant { constant: 1 }),
+            if_expression: Box::new(AstNode::Constant { constant: 2 }),
+            else_expression: Box::new(AstNode::Constant { constant: 3 }),
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.generate_expression(&ternary_expression).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                    mov	w0, #1
+                    cmp	w0, 0
+                    beq	.L1
+                    mov	w0, #2
+                    b	.L2
+                .L1:
+                    mov	w0, #3
+                .L2:
             "
         )
     }

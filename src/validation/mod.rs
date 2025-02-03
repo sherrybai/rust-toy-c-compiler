@@ -27,7 +27,7 @@ impl Validation {
             let AstNode::Function {
                 ref function_name,
                 ref parameters,
-                block_item_list: ref statement,
+                compound_statement: ref statement,
             } = function
             else {
                 return Err(anyhow!("Program function list contains non-function"));
@@ -47,7 +47,7 @@ impl Validation {
                     self.function_name_to_arg_count
                         .insert(function_name.clone(), parameters.len());
                 }
-                Some(statement_list) => {
+                Some(statement_node) => {
                     // function definition
                     // cannot have two function definitions
                     if self.function_is_defined.contains(function_name) {
@@ -67,19 +67,16 @@ impl Validation {
                     }
                     self.function_is_defined.insert(function_name.clone());
 
-                    for statement_node in statement_list {
-                        // traverse function to validate expressions
-                        self.validate_statement(statement_node)?;
-                    }
+                    // traverse function to validate expressions
+                    self.validate_block_item(statement_node)?;
                 }
             }
-        
         }
 
         Ok(())
     }
 
-    fn validate_statement(&mut self, node: &AstNode) -> anyhow::Result<()> {
+    fn validate_block_item(&mut self, node: &AstNode) -> anyhow::Result<()> {
         match node {
             AstNode::Return { ref expression } => {
                 self.validate_expression(expression)?;
@@ -92,11 +89,20 @@ impl Validation {
                     self.validate_expression(exp)?;
                 }
             }
-            AstNode::If { condition, if_statement, else_statement } => {
+            AstNode::If {
+                condition,
+                if_statement,
+                else_statement,
+            } => {
                 self.validate_expression(condition)?;
-                self.validate_statement(if_statement)?;
+                self.validate_block_item(if_statement)?;
                 if let Some(statement) = else_statement {
-                    self.validate_statement(statement)?;
+                    self.validate_block_item(statement)?;
+                }
+            }
+            AstNode::Compound { block_item_list } => {
+                for block_item in block_item_list {
+                    self.validate_block_item(block_item)?;
                 }
             }
             _ => {
@@ -145,7 +151,11 @@ impl Validation {
             } => {
                 self.validate_expression(expression)?;
             }
-            AstNode::Conditional { condition, if_expression, else_expression } => {
+            AstNode::Conditional {
+                condition,
+                if_expression,
+                else_expression,
+            } => {
                 self.validate_expression(condition)?;
                 self.validate_expression(if_expression)?;
                 self.validate_expression(else_expression)?;
@@ -179,7 +189,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -195,16 +207,20 @@ mod tests {
         let function_1 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![AstNode::Return {
-                expression: Box::new(AstNode::Constant { constant: 1 }),
-            }]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![AstNode::Return {
+                    expression: Box::new(AstNode::Constant { constant: 1 }),
+                }],
+            })),
         };
         let function_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![AstNode::Return {
-                expression: Box::new(AstNode::Constant { constant: 2 }),
-            }]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![AstNode::Return {
+                    expression: Box::new(AstNode::Constant { constant: 2 }),
+                }],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function_1, function_2],
@@ -222,12 +238,12 @@ mod tests {
         let declaration_1 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec!["a".into(), "b".into()],
-            block_item_list: None,
+            compound_statement: None,
         };
         let declaration_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec!["a".into()],
-            block_item_list: None,
+            compound_statement: None,
         };
         let program = AstNode::Program {
             function_list: vec![declaration_1, declaration_2],
@@ -246,14 +262,16 @@ mod tests {
         let declaration = AstNode::Function {
             function_name: "main".into(),
             parameters: vec!["a".into(), "b".into()],
-            block_item_list: None,
+            compound_statement: None,
         };
         let definition = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![AstNode::Return {
-                expression: Box::new(AstNode::Constant { constant: 2 }),
-            }]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![AstNode::Return {
+                    expression: Box::new(AstNode::Constant { constant: 2 }),
+                }],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![declaration, definition],
@@ -272,17 +290,19 @@ mod tests {
         let function_1 = AstNode::Function {
             function_name: "helper".into(),
             parameters: vec![],
-            block_item_list: None,
+            compound_statement: None,
         };
         let function_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![AstNode::Return {
-                expression: Box::new(AstNode::FunctionCall {
-                    function_name: "helper".into(),
-                    parameters: vec![],
-                }),
-            }]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![AstNode::Return {
+                    expression: Box::new(AstNode::FunctionCall {
+                        function_name: "helper".into(),
+                        parameters: vec![],
+                    }),
+                }],
+            })),
         };
         // helper function declared after main
         let program = AstNode::Program {
@@ -300,17 +320,19 @@ mod tests {
         let function_1 = AstNode::Function {
             function_name: "helper".into(),
             parameters: vec!["a".into(), "b".into()],
-            block_item_list: None,
+            compound_statement: None,
         };
         let function_2 = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![AstNode::Return {
-                expression: Box::new(AstNode::FunctionCall {
-                    function_name: "helper".into(),
-                    parameters: vec![],
-                }),
-            }]),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![AstNode::Return {
+                    expression: Box::new(AstNode::FunctionCall {
+                        function_name: "helper".into(),
+                        parameters: vec![],
+                    }),
+                }],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function_1, function_2],

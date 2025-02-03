@@ -143,7 +143,7 @@ impl Codegen {
         let AstNode::Function {
             function_name,
             parameters,
-            block_item_list: statement_list,
+            compound_statement,
         } = node
         else {
             return Err(anyhow!(
@@ -153,7 +153,7 @@ impl Codegen {
 
         let mut result: String = String::new();
         let mut explicit_return: bool = false;
-        if let Some(s) = statement_list {
+        if let Some(s) = compound_statement {
             // only generate assembly for function node if it is a definition
             // (non-null function body)
 
@@ -164,15 +164,19 @@ impl Codegen {
             // set up stack frame
             result.push_str(&Self::generate_function_prologue());
 
-            for statement in s {
-                let generated_statement = self.generate_statement(statement)?;
-                result.push_str(&generated_statement);
+            // for statement in s {
+            //     let generated_statement = self.generate_statement(statement)?;
+            //     result.push_str(&generated_statement);
 
-                if let AstNode::Return { expression: _ } = statement {
-                    explicit_return = true;
-                    break; // don't bother generating code after return
-                }
-            }
+            //     if let AstNode::Return { expression: _ } = statement {
+            //         explicit_return = true;
+            //         break; // don't bother generating code after return
+            //     }
+            // }
+
+            let generated_statement = self.generate_statement(s)?;
+            result.push_str(&generated_statement);
+
             if !explicit_return {
                 // return 0
                 result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
@@ -451,7 +455,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -478,7 +482,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![]),
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![] })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -505,7 +509,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: None,
+            compound_statement: None,
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -528,7 +532,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -608,7 +612,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -649,7 +653,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement]),
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -695,7 +699,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement_1]),
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement_1] })) ,
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -736,7 +740,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![statement_1, statement_2]),
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement_1, statement_2] })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -793,7 +797,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![
                 statement_1,
                 statement_2,
                 statement_3,
@@ -804,7 +808,7 @@ mod tests {
                 assignment_3,
                 assignment_4,
                 assignment_5,
-            ]),
+            ] })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -890,7 +894,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            block_item_list: Some(vec![
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![
                 statement_1,
                 statement_2,
                 statement_3,
@@ -901,7 +905,7 @@ mod tests {
                 var_read_3,
                 var_read_4,
                 var_read_5,
-            ]),
+            ] } )),
         };
         let program = AstNode::Program {
             function_list: vec![function],

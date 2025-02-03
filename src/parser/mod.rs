@@ -62,7 +62,7 @@ pub enum AstNode {
     Function {
         function_name: String,
         parameters: Vec<String>,
-        block_item_list: Option<Vec<Self>>,
+        compound_statement: Option<Box<Self>>,
     },
     // Statements
     Return {
@@ -76,6 +76,9 @@ pub enum AstNode {
         condition: Box<Self>,
         if_statement: Box<Self>,
         else_statement: Option<Box<Self>>,
+    },
+    Compound {
+        block_item_list: Vec<Self>,
     },
     // Other block items
     Declare {
@@ -164,45 +167,36 @@ impl AstNode {
             return Err(anyhow!("No closed parens"));
         };
 
-        let next_token = Self::get_next_token_from_iter(token_iter)?;
-        match next_token {
-            TokenType::Semicolon => {
-                // function declaration
-                return Ok(Self::Function {
-                    function_name,
-                    parameters,
-                    block_item_list: None,
-                });
+        if let Some(next_token) = token_iter.peek() {
+            match next_token {
+                TokenType::Semicolon => {
+                    // advance past semicolon
+                    Self::get_next_token_from_iter(token_iter)?;
+                    // function declaration
+                    return Ok(Self::Function {
+                        function_name,
+                        parameters,
+                        compound_statement: None,
+                    });
+                }
+                TokenType::OpenBrace => {
+                    // parse compound statement
+                    let statement = Self::parse_statement(token_iter)?;
+                    return Ok(Self::Function {
+                        function_name,
+                        parameters,
+                        compound_statement: Some(Box::new(statement)),
+                    });
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "No semicolon or open brace following function parameters"
+                    ));
+                }
             }
-            TokenType::OpenBrace => {
-                // do nothing
-            }
-            _ => {
-                return Err(anyhow!(
-                    "No semicolon or open brace following function parameters"
-                ));
-            }
-        }
-        // parse statements
-        let mut statements = Vec::new();
-        let mut next_token: Option<&&TokenType> = token_iter.peek();
-        loop {
-            if let Some(TokenType::ClosedBrace) = next_token {
-                // terminate function body with closed brace
-                Self::get_next_token_from_iter(token_iter)?;
-                break;
-            } else {
-                let statement = Self::parse_block_item(token_iter)?;
-                statements.push(statement);
-            };
-            next_token = token_iter.peek();
-        }
-        // return node
-        Ok(Self::Function {
-            function_name,
-            parameters,
-            block_item_list: Some(statements),
-        })
+        } else {
+            return Err(anyhow!("Missing token after function parameters"));
+        };
     }
 
     fn parse_block_item(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
@@ -234,84 +228,115 @@ impl AstNode {
                     return Err(anyhow!("Statement does not end in semicolon"));
                 };
 
-                return Ok(
-                    Self::Declare {
-                        variable: variable_name.clone(),
-                        expression,
-                    }
-                )
+                return Ok(Self::Declare {
+                    variable: variable_name.clone(),
+                    expression,
+                });
             }
         }
         Ok(Self::parse_statement(token_iter)?)
     }
 
     fn parse_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
-        // <statement> ::= "return" <exp> ";"| <exp> ";" | "if" "(" <exp> ")" <statement> [ "else" <statement> ]
+        // <statement> ::= "return" <exp> ";"| <exp> ";" | "if" "(" <exp> ")" <statement> [ "else" <statement> ] | | "{" { <block-item> } "}
         let statement: AstNode;
         let mut next_token: Option<&&TokenType> = token_iter.peek();
-        if let Some(TokenType::Keyword(s)) = next_token {
-            match &s[..] {
-                "return" => {
-                    // advance iterator past "return"
-                    Self::get_next_token_from_iter(token_iter)?;
+        match next_token {
+            Some(TokenType::Keyword(s)) => {
+                match &s[..] {
+                    "return" => {
+                        // advance iterator past "return"
+                        Self::get_next_token_from_iter(token_iter)?;
 
-                    let expression = Self::parse_expression(token_iter)?;
-                    statement = Self::Return {
-                        expression: Box::new(expression),
-                    };
-                    // must end in semicolon
-                    let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
-                        return Err(anyhow!("Statement does not end in semicolon"));
-                    };
-                },
-                "if" => {
-                    // advance iterator past "if"
-                    Self::get_next_token_from_iter(token_iter)?;
-
-                    if let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? {
-                        // do nothing
-                    } else {
-                        return Err(anyhow!("if keyword must be followed by parentheses"))
+                        let expression = Self::parse_expression(token_iter)?;
+                        statement = Self::Return {
+                            expression: Box::new(expression),
+                        };
+                        // must end in semicolon
+                        let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)?
+                        else {
+                            return Err(anyhow!("Statement does not end in semicolon"));
+                        };
                     }
+                    "if" => {
+                        // advance iterator past "if"
+                        Self::get_next_token_from_iter(token_iter)?;
 
-                    // parse condition
-                    let expression = Box::new(Self::parse_expression(token_iter)?);
+                        if let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? {
+                            // do nothing
+                        } else {
+                            return Err(anyhow!("if keyword must be followed by parentheses"));
+                        }
 
-                    if let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? {
-                        // do nothing
-                    } else {
-                        return Err(anyhow!("if parentheses not closed"))
-                    }
-                    
-                    // parse if statement
-                    let if_statement = Box::new(Self::parse_statement(token_iter)?);
+                        // parse condition
+                        let expression = Box::new(Self::parse_expression(token_iter)?);
 
-                    // optional else statement
-                    let mut else_statement: Option<Box<AstNode>> = None;
-                    next_token = token_iter.peek();
-                    if let Some(TokenType::Keyword(s)) = next_token {
-                        if s == "else" {
-                            // advance iterator past else
-                            Self::get_next_token_from_iter(token_iter)?;
+                        if let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)?
+                        {
+                            // do nothing
+                        } else {
+                            return Err(anyhow!("if parentheses not closed"));
+                        }
 
-                            // parse else statement
-                            else_statement = Some(Box::new(Self::parse_statement(token_iter)?));
+                        // parse if statement
+                        let if_statement = Box::new(Self::parse_statement(token_iter)?);
+
+                        // optional else statement
+                        let mut else_statement: Option<Box<AstNode>> = None;
+                        next_token = token_iter.peek();
+                        if let Some(TokenType::Keyword(s)) = next_token {
+                            if s == "else" {
+                                // advance iterator past else
+                                Self::get_next_token_from_iter(token_iter)?;
+
+                                // parse else statement
+                                else_statement = Some(Box::new(Self::parse_statement(token_iter)?));
+                            }
+                        }
+
+                        statement = Self::If {
+                            condition: expression,
+                            if_statement,
+                            else_statement,
                         }
                     }
-
-                    statement = Self::If { condition: expression, if_statement, else_statement }
-                },
-                _ => {
-                    return Err(anyhow!("Unknown keyword"));
+                    _ => {
+                        return Err(anyhow!("Unknown keyword"));
+                    }
                 }
             }
-        } else {
-            // parse as expression
-            statement = Self::parse_expression(token_iter)?;
-            // must end in semicolon
-            let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
-                return Err(anyhow!("Statement does not end in semicolon"));
-            };
+            Some(TokenType::OpenBrace) => {
+                // compound statement
+                // advance past {
+                Self::get_next_token_from_iter(token_iter)?;
+
+                // parse statements
+                let mut block_items = Vec::new();
+                let mut next_token: Option<&&TokenType> = token_iter.peek();
+                loop {
+                    if let Some(TokenType::ClosedBrace) = next_token {
+                        // terminate function body with closed brace
+                        Self::get_next_token_from_iter(token_iter)?;
+                        break;
+                    } else {
+                        let statement = Self::parse_block_item(token_iter)?;
+                        block_items.push(statement);
+                    };
+                    next_token = token_iter.peek();
+                }
+
+                return Ok(Self::Compound {
+                    block_item_list: block_items,
+                });
+            }
+            _ => {
+                // parse as expression
+                statement = Self::parse_expression(token_iter)?;
+                // must end in semicolon
+                let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
+                    return Err(anyhow!("Statement does not end in semicolon"));
+                };
+            }
         }
 
         // return node
@@ -357,15 +382,13 @@ impl AstNode {
             if let TokenType::Colon = Self::get_next_token_from_iter(token_iter)? {
                 else_expression = Self::parse_conditional_exp(token_iter)?;
             } else {
-                return Err(anyhow!("Missing colon in ternary operator expression"))
+                return Err(anyhow!("Missing colon in ternary operator expression"));
             }
-            Ok(
-                AstNode::Conditional { 
-                    condition: Box::new(logical_or_exp), 
-                    if_expression: Box::new(if_expression), 
-                    else_expression: Box::new(else_expression),
-                }
-            )
+            Ok(AstNode::Conditional {
+                condition: Box::new(logical_or_exp),
+                if_expression: Box::new(if_expression),
+                else_expression: Box::new(else_expression),
+            })
         } else {
             Ok(logical_or_exp)
         }
@@ -906,8 +929,17 @@ mod tests {
             }),
             next_expression: Box::new(AstNode::Constant { constant: 2 }),
         };
-        let if_statement = AstNode::Return { expression: Box::new(AstNode::Constant { constant: 2 }) };        
-        assert_eq!(statement.unwrap(), AstNode::If { condition: Box::new(condition), if_statement: Box::new(if_statement), else_statement: None });
+        let if_statement = AstNode::Return {
+            expression: Box::new(AstNode::Constant { constant: 2 }),
+        };
+        assert_eq!(
+            statement.unwrap(),
+            AstNode::If {
+                condition: Box::new(condition),
+                if_statement: Box::new(if_statement),
+                else_statement: None
+            }
+        );
     }
 
     #[test]
@@ -922,7 +954,13 @@ mod tests {
         let statement: anyhow::Result<AstNode> =
             AstNode::parse_block_item(&mut peek_nth(token_vec.iter()));
         let expression = Box::new(AstNode::Constant { constant: 2 });
-        assert_eq!(statement.unwrap(), AstNode::Declare { variable: "a".into(), expression: Some(expression) });
+        assert_eq!(
+            statement.unwrap(),
+            AstNode::Declare {
+                variable: "a".into(),
+                expression: Some(expression)
+            }
+        );
     }
 
     #[test]
@@ -950,7 +988,9 @@ mod tests {
             AstNode::Function {
                 function_name: "main".into(),
                 parameters: vec!["param1".into(), "param2".into(), "param3".into()],
-                block_item_list: Some(vec![statement])
+                compound_statement: Some(Box::new(AstNode::Compound {
+                    block_item_list: vec![statement]
+                }))
             }
         );
     }
@@ -987,14 +1027,16 @@ mod tests {
                     AstNode::Function {
                         function_name: "helper".into(),
                         parameters: vec!["param1".into(), "param2".into(), "param3".into(),],
-                        block_item_list: None,
+                        compound_statement: None,
                     },
                     AstNode::Function {
                         function_name: "main".into(),
                         parameters: vec![],
-                        block_item_list: Some(vec![AstNode::Return {
-                            expression: Box::new(AstNode::Constant { constant: 2 }),
-                        }])
+                        compound_statement: Some(Box::new(AstNode::Compound {
+                            block_item_list: vec![AstNode::Return {
+                                expression: Box::new(AstNode::Constant { constant: 2 }),
+                            }]
+                        }))
                     },
                 ]
             }
@@ -1037,7 +1079,60 @@ mod tests {
             AstNode::Function {
                 function_name: "main".into(),
                 parameters: vec!["param1".into(), "param2".into(), "param3".into()],
-                block_item_list: Some(vec![statement_1, statement_2])
+                compound_statement: Some(Box::new(AstNode::Compound {
+                    block_item_list: vec![statement_1, statement_2]
+                }))
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_if_compound_statements() {
+        let token_vec = vec![
+            TokenType::Keyword("if".into()),
+            TokenType::OpenParens,
+            TokenType::Identifier("a".into()),
+            TokenType::Equal,
+            TokenType::IntLiteral(2),
+            TokenType::ClosedParens,
+            TokenType::OpenBrace,
+            TokenType::Identifier("a".into()),
+            TokenType::Equal,
+            TokenType::IntLiteral(1),
+            TokenType::Semicolon,
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+            TokenType::ClosedBrace,
+        ];
+        let statement: anyhow::Result<AstNode> =
+            AstNode::parse_statement(&mut peek_nth(token_vec.iter()));
+        let condition = AstNode::BinaryOp {
+            operator: Operator::Equal,
+            expression: Box::new(AstNode::Variable {
+                variable: "a".into(),
+            }),
+            next_expression: Box::new(AstNode::Constant { constant: 2 }),
+        };
+        let nested_statement_1 = AstNode::BinaryOp {
+            operator: Operator::Equal,
+            expression: Box::new(AstNode::Variable {
+                variable: "a".into(),
+            }),
+            next_expression: Box::new(AstNode::Constant { constant: 1 }),
+        };
+        let nested_statement_2 = AstNode::Return {
+            expression: Box::new(AstNode::Constant { constant: 2 }),
+        };
+        let if_statement = AstNode::Compound {
+            block_item_list: vec![nested_statement_1, nested_statement_2],
+        };
+        assert_eq!(
+            statement.unwrap(),
+            AstNode::If {
+                condition: Box::new(condition),
+                if_statement: Box::new(if_statement),
+                else_statement: None
             }
         );
     }

@@ -178,6 +178,8 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
             }
 
+            // write label for jumping to early return
+            result.push_str(&format!("{}:\n", ".return"));
             result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
@@ -192,7 +194,8 @@ impl Codegen {
             AstNode::Return { expression } => {
                 let generated_expression: String = self.generate_expression(expression)?;
                 result.push_str(&generated_expression);
-                // write return later
+                // jump to return label
+                result.push_str(&Self::format_instruction("b", vec![".return"]));
             }
             AstNode::Declare {
                 variable,

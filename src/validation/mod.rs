@@ -69,27 +69,40 @@ impl Validation {
 
                     for statement_node in statement_list {
                         // traverse function to validate expressions
-                        match statement_node {
-                            AstNode::Return { ref expression } => {
-                                self.validate_expression(expression)?;
-                            }
-                            AstNode::Declare {
-                                variable: _,
-                                ref expression,
-                            } => {
-                                if let Some(exp) = expression {
-                                    self.validate_expression(exp)?;
-                                }
-                            }
-                            _ => {
-                                self.validate_expression(statement_node)?;
-                            }
-                        }
+                        self.validate_statement(statement_node)?;
                     }
                 }
             }
+        
         }
 
+        Ok(())
+    }
+
+    fn validate_statement(&mut self, node: &AstNode) -> anyhow::Result<()> {
+        match node {
+            AstNode::Return { ref expression } => {
+                self.validate_expression(expression)?;
+            }
+            AstNode::Declare {
+                variable: _,
+                ref expression,
+            } => {
+                if let Some(exp) = expression {
+                    self.validate_expression(exp)?;
+                }
+            }
+            AstNode::If { condition, if_statement, else_statement } => {
+                self.validate_expression(condition)?;
+                self.validate_statement(if_statement)?;
+                if let Some(statement) = else_statement {
+                    self.validate_statement(statement)?;
+                }
+            }
+            _ => {
+                self.validate_expression(node)?;
+            }
+        }
         Ok(())
     }
 
@@ -131,6 +144,11 @@ impl Validation {
                 expression,
             } => {
                 self.validate_expression(expression)?;
+            }
+            AstNode::Conditional { condition, if_expression, else_expression } => {
+                self.validate_expression(condition)?;
+                self.validate_expression(if_expression)?;
+                self.validate_expression(else_expression)?;
             }
             AstNode::Variable { variable: _ } => {
                 // do nothing

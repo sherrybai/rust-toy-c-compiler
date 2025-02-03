@@ -1293,8 +1293,12 @@ mod tests {
     fn test_parse_do_loop() {
         let token_vec = vec![
             TokenType::Keyword("do".into()),
-            TokenType::IntLiteral(2),
+            TokenType::OpenBrace,
+            TokenType::Keyword("break".into()), // non-sensical, but meant to test keyword
             TokenType::Semicolon,
+            TokenType::Keyword("continue".into()), // non-sensical, but meant to test keyword
+            TokenType::Semicolon,
+            TokenType::ClosedBrace,
             TokenType::Keyword("while".into()),
             TokenType::OpenParens,
             TokenType::Identifier("a".into()),
@@ -1308,7 +1312,12 @@ mod tests {
         assert_eq!(
             statement.unwrap(),
             AstNode::Do {
-                body: Box::new(AstNode::Constant { constant: 2 }),
+                body: Box::new(AstNode::Compound { 
+                    block_item_list: vec![
+                        AstNode::Break,
+                        AstNode::Continue,
+                    ]
+                 }),
                 condition: Box::new(AstNode::BinaryOp {
                     operator: Operator::LessThan,
                     expression: Box::new(AstNode::Variable {

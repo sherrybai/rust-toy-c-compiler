@@ -11,7 +11,6 @@ const INDENT: &str = "	";
 pub struct Codegen {
     stack_offset_bytes: i32,
     label_counter: u32,
-    variable_map: HashMap<String, i32>,
 }
 
 impl Codegen {
@@ -19,7 +18,6 @@ impl Codegen {
         Codegen {
             stack_offset_bytes: 0,
             label_counter: 1,
-            variable_map: HashMap::new(),
         }
     }
 
@@ -173,7 +171,7 @@ impl Codegen {
             //     }
             // }
 
-            let generated_statement = self.generate_block_item(s)?;
+            let generated_statement = self.generate_compound_statement(s)?;
             result.push_str(&generated_statement);
 
             // if there is no explicit return statement, then return 0
@@ -189,7 +187,8 @@ impl Codegen {
         Ok(result)
     }
 
-    fn generate_block_item(&mut self, node: &AstNode) -> anyhow::Result<String> {
+    fn generate_block_item(&mut self, node: &AstNode, variable_map: &mut HashMap<String, i32>) -> anyhow::Result<String> {
+        println!("{:?}", variable_map);
         let mut result: String = String::new();
 
         match node {
@@ -198,14 +197,14 @@ impl Codegen {
                 variable,
                 expression,
             } => {
-                if self.variable_map.contains_key(variable) {
+                if variable_map.contains_key(variable) {
                     return Err(anyhow!("Variable already declared"));
                 }
 
                 let generated_expression: String;
                 if let Some(nested_expression) = expression {
                     // write expression
-                    generated_expression = self.generate_expression(nested_expression)?;
+                    generated_expression = self.generate_expression(nested_expression, &variable_map)?;
                 } else {
                     // initialize variable to 0
                     generated_expression = Self::format_instruction("mov", vec!["w0", "0"]);
@@ -214,23 +213,22 @@ impl Codegen {
                 // assume value lives in w0
                 // push onto stack
                 result.push_str(&self.generate_push_instruction("w0"));
-                self.variable_map
-                    .insert(variable.clone(), self.stack_offset_bytes);
+                variable_map.insert(variable.clone(), self.stack_offset_bytes);
             }
             // statements: cannot mutate variable map
             _ => {
-                result.push_str(&self.generate_statement(node)?);
+                result.push_str(&self.generate_statement(node, &variable_map)?);
 
             }
         }
         Ok(result)
     }
 
-    fn generate_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
+    fn generate_statement(&mut self, node: &AstNode, variable_map: &HashMap<String, i32>) -> anyhow::Result<String> {
         let mut result = String::new();
         match node {
             AstNode::Return { expression } => {
-                let generated_expression: String = self.generate_expression(expression)?;
+                let generated_expression: String = self.generate_expression(expression, variable_map)?;
                 result.push_str(&generated_expression);
                 // jump to return label
                 result.push_str(&Self::format_instruction("b", vec![".return"]));
@@ -241,7 +239,7 @@ impl Codegen {
                 else_statement,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(condition)?);
+                result.push_str(&self.generate_expression(condition, variable_map)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -250,30 +248,44 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_statement
-                result.push_str(&self.generate_block_item(&if_statement)?);
+                result.push_str(&self.generate_statement(&if_statement, variable_map)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
 
                 // jump here to execute else_expression (if not optional)
                 result.push_str(&format!("{}:\n", label_1));
                 if let Some(node) = else_statement {
-                    result.push_str(&self.generate_block_item(&node)?);
+                    result.push_str(&self.generate_statement(&node, variable_map)?);
                 }
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }
             AstNode::Compound { block_item_list } => {
-                for block_item in block_item_list {
-                    result.push_str(&self.generate_block_item(block_item)?);
-                }
+                result.push_str(&self.generate_compound_statement(node)?);
             }
             _ => {
-                result.push_str(&self.generate_expression(node)?);
+                result.push_str(&self.generate_expression(node, variable_map)?);
             }
         }
         Ok(result)
     }
 
-    fn generate_expression(&mut self, node: &AstNode) -> anyhow::Result<String> {
+    fn generate_compound_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
+        if let AstNode::Compound { block_item_list } = node {
+            let mut result = String::new();
+
+            // new variable map
+            let mut new_variable_map: HashMap<String, i32> = HashMap::new();
+
+            for block_item in block_item_list {
+                result.push_str(&self.generate_block_item(block_item, &mut new_variable_map)?);
+            }
+            Ok(result)
+        } else {
+            Err(anyhow!("Not a compound statement"))
+        }
+    }
+
+    fn generate_expression(&mut self, node: &AstNode, variable_map: &HashMap<String, i32>) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
         match node {
@@ -285,14 +297,14 @@ impl Codegen {
                 ));
             }
             AstNode::Variable { variable } => {
-                if !self.variable_map.contains_key(variable) {
+                if !variable_map.contains_key(variable) {
                     return Err(anyhow!("Variable not declared before assignment"));
                 }
-                let stack_offset = self.variable_map.get(variable).unwrap();
+                let stack_offset = variable_map.get(variable).unwrap();
                 result.push_str(&self.generate_variable_read(*stack_offset));
             }
             AstNode::UnaryOp { operator, factor } => {
-                let nested_expression = self.generate_expression(factor)?;
+                let nested_expression = self.generate_expression(factor, variable_map)?;
                 result.push_str(&nested_expression);
                 // assume previous operation moves the value to w0
                 match operator {
@@ -321,8 +333,8 @@ impl Codegen {
                 expression: term,
                 next_expression: next_term,
             } => {
-                let nested_term_1 = self.generate_expression(term)?;
-                let nested_term_2 = self.generate_expression(next_term)?;
+                let nested_term_1 = self.generate_expression(term, variable_map)?;
+                let nested_term_2 = self.generate_expression(next_term, variable_map)?;
 
                 // write instructions for term 1
                 result.push_str(&nested_term_1);
@@ -417,14 +429,14 @@ impl Codegen {
                 variable,
                 expression,
             } => {
-                if !self.variable_map.contains_key(variable) {
+                if !variable_map.contains_key(variable) {
                     return Err(anyhow!("Variable not declared before assignment"));
                 }
                 // generate expression
-                result.push_str(&self.generate_expression(expression)?);
+                result.push_str(&self.generate_expression(expression, variable_map)?);
 
                 // move w0 to location at stack offset
-                let stack_offset = self.variable_map.get(variable).unwrap();
+                let stack_offset = variable_map.get(variable).unwrap();
                 result.push_str(&self.generate_variable_assignment(*stack_offset));
             }
             AstNode::Conditional {
@@ -433,7 +445,7 @@ impl Codegen {
                 else_expression,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(condition)?);
+                result.push_str(&self.generate_expression(condition, variable_map)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -442,11 +454,11 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_expression
-                result.push_str(&self.generate_expression(&if_expression)?);
+                result.push_str(&self.generate_expression(&if_expression, variable_map)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
                 // jump here to execute else_expression
                 result.push_str(&format!("{}:\n", label_1));
-                result.push_str(&self.generate_expression(&else_expression)?);
+                result.push_str(&self.generate_expression(&else_expression, variable_map)?);
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }
@@ -986,7 +998,8 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_expression(&ternary_expression).unwrap();
+        let variable_map: HashMap<String, i32> = HashMap::new();
+        let result = codegen.generate_expression(&ternary_expression, &variable_map).unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1014,7 +1027,8 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_block_item(&if_statement).unwrap();
+        let variable_map: HashMap<String, i32> = HashMap::new();
+        let result = codegen.generate_statement(&if_statement, &variable_map).unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1044,7 +1058,8 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_block_item(&if_statement).unwrap();
+        let variable_map: HashMap<String, i32> = HashMap::new();
+        let result = codegen.generate_statement(&if_statement, &variable_map).unwrap();
         assert_str_trim_eq!(
             result,
             "

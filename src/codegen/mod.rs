@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::var, hash::Hash};
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 #[cfg(test)]
@@ -161,16 +161,6 @@ impl Codegen {
             // set up stack frame
             result.push_str(&Self::generate_function_prologue());
 
-            // for statement in s {
-            //     let generated_statement = self.generate_statement(statement)?;
-            //     result.push_str(&generated_statement);
-
-            //     if let AstNode::Return { expression: _ } = statement {
-            //         explicit_return = true;
-            //         break; // don't bother generating code after return
-            //     }
-            // }
-
             let variable_map: HashMap<String, i32> = HashMap::new();
             let generated_statement = self.generate_compound_statement(s, &variable_map)?;
             result.push_str(&generated_statement);
@@ -188,15 +178,25 @@ impl Codegen {
         Ok(result)
     }
 
-    fn generate_compound_statement(&mut self, node: &AstNode, variable_map: &HashMap<String, i32>) -> anyhow::Result<String> {
+    fn generate_compound_statement(
+        &mut self,
+        node: &AstNode,
+        variable_map: &HashMap<String, i32>,
+    ) -> anyhow::Result<String> {
         if let AstNode::Compound { block_item_list } = node {
             let mut result = String::new();
 
             // new variable map, cloning from outer scope
             let mut new_variable_map: HashMap<String, i32> = variable_map.clone();
+            // track variables in the current scope
+            let mut current_scope: HashSet<String> = HashSet::new();
 
             for block_item in block_item_list {
-                result.push_str(&self.generate_block_item(block_item, &mut new_variable_map)?);
+                result.push_str(&self.generate_block_item(
+                    block_item,
+                    &mut new_variable_map,
+                    &mut current_scope,
+                )?);
             }
             Ok(result)
         } else {
@@ -204,7 +204,12 @@ impl Codegen {
         }
     }
 
-    fn generate_block_item(&mut self, node: &AstNode, variable_map: &mut HashMap<String, i32>) -> anyhow::Result<String> {
+    fn generate_block_item(
+        &mut self,
+        node: &AstNode,
+        variable_map: &mut HashMap<String, i32>,
+        current_scope: &mut HashSet<String>,
+    ) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
         match node {
@@ -213,14 +218,15 @@ impl Codegen {
                 variable,
                 expression,
             } => {
-                if variable_map.contains_key(variable) {
+                if current_scope.contains(variable) {
                     return Err(anyhow!("Variable already declared"));
                 }
 
                 let generated_expression: String;
                 if let Some(nested_expression) = expression {
                     // write expression
-                    generated_expression = self.generate_expression(nested_expression, &variable_map)?;
+                    generated_expression =
+                        self.generate_expression(nested_expression, &variable_map)?;
                 } else {
                     // initialize variable to 0
                     generated_expression = Self::format_instruction("mov", vec!["w0", "0"]);
@@ -232,21 +238,26 @@ impl Codegen {
 
                 // update variable map and current scope
                 variable_map.insert(variable.clone(), self.stack_offset_bytes);
+                current_scope.insert(variable.clone());
             }
             // statements: cannot mutate variable map
             _ => {
                 result.push_str(&self.generate_statement(node, &variable_map)?);
-
             }
         }
         Ok(result)
     }
 
-    fn generate_statement(&mut self, node: &AstNode, variable_map: &HashMap<String, i32>) -> anyhow::Result<String> {
+    fn generate_statement(
+        &mut self,
+        node: &AstNode,
+        variable_map: &HashMap<String, i32>,
+    ) -> anyhow::Result<String> {
         let mut result = String::new();
         match node {
             AstNode::Return { expression } => {
-                let generated_expression: String = self.generate_expression(expression, variable_map)?;
+                let generated_expression: String =
+                    self.generate_expression(expression, variable_map)?;
                 result.push_str(&generated_expression);
                 // jump to return label
                 result.push_str(&Self::format_instruction("b", vec![".return"]));
@@ -287,7 +298,11 @@ impl Codegen {
         Ok(result)
     }
 
-    fn generate_expression(&mut self, node: &AstNode, variable_map: &HashMap<String, i32>) -> anyhow::Result<String> {
+    fn generate_expression(
+        &mut self,
+        node: &AstNode,
+        variable_map: &HashMap<String, i32>,
+    ) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
         match node {
@@ -485,7 +500,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -515,7 +532,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![] })),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -566,7 +585,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -649,7 +670,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -693,7 +716,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement] })),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -742,7 +767,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement_1] })) ,
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement_1],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -784,7 +811,9 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![statement_1, statement_2] })),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement_1, statement_2],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -793,6 +822,57 @@ mod tests {
         let mut codegen: Codegen = Codegen::new();
         let result = codegen.codegen(program);
         assert!(result.is_err_and(|e| e.to_string() == "Variable already declared"));
+    }
+
+    #[test]
+    fn test_duplicate_variable_declaration_nested_scope_allowed() {
+        let constant_1 = Box::new(AstNode::Constant { constant: 1 });
+        let constant_2 = Box::new(AstNode::Constant { constant: 2 });
+        let statement_1 = AstNode::Declare {
+            variable: "a".into(),
+            expression: Some(constant_1),
+        };
+        let statement_2 = AstNode::Declare {
+            variable: "a".into(),
+            expression: Some(constant_2),
+        };
+        let function = AstNode::Function {
+            function_name: "main".into(),
+            parameters: vec![],
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    AstNode::Compound {
+                        block_item_list: vec![statement_2],
+                    },
+                ],
+            })),
+        };
+        let program = AstNode::Program {
+            function_list: vec![function],
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .globl _main
+                _main:
+                    stp	x29, x30, [sp, -16]!
+                    mov	x29, sp
+                    mov	w0, #1
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
+                    mov	w0, #2
+                    str	w0, [sp, 8]
+                    mov	w0, #0
+                .return:
+                    add	sp, sp, 16
+                    ldp	x29, x30, [sp], 16
+                    ret
+            "
+        )
     }
 
     #[test]
@@ -841,18 +921,20 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![
-                statement_1,
-                statement_2,
-                statement_3,
-                statement_4,
-                statement_5,
-                assignment_1,
-                assignment_2,
-                assignment_3,
-                assignment_4,
-                assignment_5,
-            ] })),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    statement_2,
+                    statement_3,
+                    statement_4,
+                    statement_5,
+                    assignment_1,
+                    assignment_2,
+                    assignment_3,
+                    assignment_4,
+                    assignment_5,
+                ],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -939,18 +1021,20 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![
-                statement_1,
-                statement_2,
-                statement_3,
-                statement_4,
-                statement_5,
-                var_read_1,
-                var_read_2,
-                var_read_3,
-                var_read_4,
-                var_read_5,
-            ] } )),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    statement_2,
+                    statement_3,
+                    statement_4,
+                    statement_5,
+                    var_read_1,
+                    var_read_2,
+                    var_read_3,
+                    var_read_4,
+                    var_read_5,
+                ],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -1008,13 +1092,15 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![
-                statement_1,
-                AstNode::Compound { block_item_list: vec![
-                    statement_2,
-                ]},
-                var_read_2,
-            ] } )),
+            compound_statement: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![
+                    statement_1,
+                    AstNode::Compound {
+                        block_item_list: vec![statement_2],
+                    },
+                    var_read_2,
+                ],
+            })),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -1035,7 +1121,9 @@ mod tests {
 
         let mut codegen: Codegen = Codegen::new();
         let variable_map: HashMap<String, i32> = HashMap::new();
-        let result = codegen.generate_expression(&ternary_expression, &variable_map).unwrap();
+        let result = codegen
+            .generate_expression(&ternary_expression, &variable_map)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1064,7 +1152,9 @@ mod tests {
 
         let mut codegen: Codegen = Codegen::new();
         let variable_map: HashMap<String, i32> = HashMap::new();
-        let result = codegen.generate_statement(&if_statement, &variable_map).unwrap();
+        let result = codegen
+            .generate_statement(&if_statement, &variable_map)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1095,7 +1185,9 @@ mod tests {
 
         let mut codegen: Codegen = Codegen::new();
         let variable_map: HashMap<String, i32> = HashMap::new();
-        let result = codegen.generate_statement(&if_statement, &variable_map).unwrap();
+        let result = codegen
+            .generate_statement(&if_statement, &variable_map)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "

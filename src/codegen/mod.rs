@@ -143,7 +143,7 @@ impl Codegen {
         let AstNode::Function {
             function_name,
             parameters,
-            statement_list,
+            block_item_list: statement_list,
         } = node
         else {
             return Err(anyhow!(
@@ -178,6 +178,8 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
             }
 
+            // write label for jumping to early return
+            result.push_str(&format!("{}:\n", ".return"));
             result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
@@ -192,7 +194,8 @@ impl Codegen {
             AstNode::Return { expression } => {
                 let generated_expression: String = self.generate_expression(expression)?;
                 result.push_str(&generated_expression);
-                // write return later
+                // jump to return label
+                result.push_str(&Self::format_instruction("b", vec![".return"]));
             }
             AstNode::Declare {
                 variable,
@@ -216,6 +219,32 @@ impl Codegen {
                 result.push_str(&self.generate_push_instruction("w0"));
                 self.variable_map
                     .insert(variable.clone(), self.stack_offset_bytes);
+            }
+            AstNode::If {
+                condition,
+                if_statement,
+                else_statement,
+            } => {
+                // evaluate condition
+                result.push_str(&self.generate_expression(condition)?);
+
+                let label_1 = &format!(".L{:?}", self.label_counter);
+                let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                self.label_counter += 2;
+                // skip to label 1 if condition is false
+                result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                result.push_str(&Self::format_instruction("beq", vec![label_1]));
+                // otherwise, execute if_statement
+                result.push_str(&self.generate_statement(&if_statement)?);
+                result.push_str(&Self::format_instruction("b", vec![label_2]));
+
+                // jump here to execute else_expression (if not optional)
+                result.push_str(&format!("{}:\n", label_1));
+                if let Some(node) = else_statement {
+                    result.push_str(&self.generate_statement(&node)?);
+                }
+                // mark end of this block
+                result.push_str(&format!("{}:\n", label_2));
             }
             _ => {
                 result.push_str(&self.generate_expression(node)?);
@@ -378,6 +407,29 @@ impl Codegen {
                 let stack_offset = self.variable_map.get(variable).unwrap();
                 result.push_str(&self.generate_variable_assignment(*stack_offset));
             }
+            AstNode::Conditional {
+                condition,
+                if_expression,
+                else_expression,
+            } => {
+                // evaluate condition
+                result.push_str(&self.generate_expression(condition)?);
+
+                let label_1 = &format!(".L{:?}", self.label_counter);
+                let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                self.label_counter += 2;
+                // skip to label 1 if condition is false
+                result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                result.push_str(&Self::format_instruction("beq", vec![label_1]));
+                // otherwise, execute if_expression
+                result.push_str(&self.generate_expression(&if_expression)?);
+                result.push_str(&Self::format_instruction("b", vec![label_2]));
+                // jump here to execute else_expression
+                result.push_str(&format!("{}:\n", label_1));
+                result.push_str(&self.generate_expression(&else_expression)?);
+                // mark end of this block
+                result.push_str(&format!("{}:\n", label_2));
+            }
             _ => {
                 return Err(anyhow!("Malformed expression"));
             }
@@ -399,7 +451,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -426,7 +478,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![]),
+            block_item_list: Some(vec![]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -453,7 +505,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: None,
+            block_item_list: None,
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -476,7 +528,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -556,7 +608,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -597,7 +649,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement]),
+            block_item_list: Some(vec![statement]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -643,7 +695,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement_1]),
+            block_item_list: Some(vec![statement_1]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -684,7 +736,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![statement_1, statement_2]),
+            block_item_list: Some(vec![statement_1, statement_2]),
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -741,7 +793,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![
+            block_item_list: Some(vec![
                 statement_1,
                 statement_2,
                 statement_3,
@@ -838,7 +890,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            statement_list: Some(vec![
+            block_item_list: Some(vec![
                 statement_1,
                 statement_2,
                 statement_3,
@@ -885,6 +937,88 @@ mod tests {
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_ternary_operator() {
+        let ternary_expression = AstNode::Conditional {
+            condition: Box::new(AstNode::Constant { constant: 1 }),
+            if_expression: Box::new(AstNode::Constant { constant: 2 }),
+            else_expression: Box::new(AstNode::Constant { constant: 3 }),
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.generate_expression(&ternary_expression).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                    mov	w0, #1
+                    cmp	w0, 0
+                    beq	.L1
+                    mov	w0, #2
+                    b	.L2
+                .L1:
+                    mov	w0, #3
+                .L2:
+            "
+        )
+    }
+
+    #[test]
+    fn test_if_statement_no_body() {
+        let condition = AstNode::Constant { constant: 1 };
+        let if_statement = AstNode::If {
+            condition: Box::new(condition),
+            if_statement: Box::new(AstNode::Return {
+                expression: Box::new(AstNode::Constant { constant: 2 }),
+            }),
+            else_statement: None,
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.generate_statement(&if_statement).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                    mov	w0, #1
+                    cmp	w0, 0
+                    beq	.L1
+                    mov	w0, #2
+                    b	.L2
+                .L1:
+                .L2:
+            "
+        )
+    }
+
+    #[test]
+    fn test_if_statement() {
+        let condition = AstNode::Constant { constant: 1 };
+        let if_statement = AstNode::If {
+            condition: Box::new(condition),
+            if_statement: Box::new(AstNode::Return {
+                expression: Box::new(AstNode::Constant { constant: 2 }),
+            }),
+            else_statement: Some(Box::new(AstNode::Return {
+                expression: Box::new(AstNode::Constant { constant: 3 }),
+            })),
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.generate_statement(&if_statement).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                    mov	w0, #1
+                    cmp	w0, 0
+                    beq	.L1
+                    mov	w0, #2
+                    b	.L2
+                .L1:
+                    mov	w0, #3
+                .L2:
             "
         )
     }

@@ -259,13 +259,8 @@ impl AstNode {
 
     fn parse_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // <statement> ::= "return" <exp-option> ";"| <exp> ";"
-        // | "if" "(" <exp> ")" <statement> [ "else" <statement> ] | | "{" { <block-item> } "}
-        // | "for" "(" <exp-option> ";" <exp-option> ";" <exp-option> ")" <statement>
-        // | "for" "(" <declaration> <exp-option> ";" <exp-option> ")" <statement>
-        // | "while" "(" <exp> ")" <statement>
-        // | "do" <statement> "while" "(" <exp> ")" ";"
-        // | "break" ";"
-        // | "continue" ";"
+        // | <if-statement> | <for-statement> | <while-statement> | <do-statement>
+        // | "break" ";" | "continue" ";"
         let statement: AstNode;
         let next_token: Option<&&TokenType> = token_iter.peek();
         match next_token {
@@ -361,6 +356,8 @@ impl AstNode {
     }
 
     fn parse_if_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <if-statement> ::= "if" "(" <exp> ")" <statement> [ "else" <statement> ] | | "{" { <block-item> } "}
+
         // advance iterator past "if"
         Self::get_next_token_from_iter(token_iter)?;
 
@@ -402,6 +399,9 @@ impl AstNode {
     }
 
     fn parse_for_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <for-statement> ::= "for" "(" <exp-option> ";" <exp-option> ";" <exp-option> ")" <statement>
+        // | "for" "(" <declaration> <exp-option> ";" <exp-option> ")" <statement>
+
         // iterate past "for" keyword
         Self::get_next_token_from_iter(token_iter)?;
 
@@ -452,8 +452,23 @@ impl AstNode {
     }
 
     fn parse_while_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <while-statement> ::= "while" "(" <exp> ")" <statement>
+
+        // iterate past "while" keyword
+        Self::get_next_token_from_iter(token_iter)?;
+
+        // open parens
+        let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? else {
+            return Err(anyhow!("while keyword must be succeeded by parentheses"));
+        };
+
         // parse condition expression
         let condition = Self::parse_expression(token_iter)?;
+
+        // closed parens
+        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
+            return Err(anyhow!("while loop parentheses not closed"));
+        };
 
         // parse body
         let body: AstNode = Self::parse_statement(token_iter)?;
@@ -465,11 +480,39 @@ impl AstNode {
     }
 
     fn parse_do_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <do-statement> ::= "do" <statement> "while" "(" <exp> ")" ";"
+
+        // iterate past "do" keyword
+        Self::get_next_token_from_iter(token_iter)?;
+
         // parse body
         let body: AstNode = Self::parse_statement(token_iter)?;
 
+        // "while" keyword
+        let TokenType::Keyword(s) = Self::get_next_token_from_iter(token_iter)? else {
+            return Err(anyhow!("do statement must be succeeded by 'while' keyword"));
+        };
+        if s != "while" {
+            return Err(anyhow!("do statement must be succeeded by 'while' keyword"));
+        }
+
+        // open parens
+        let TokenType::OpenParens = Self::get_next_token_from_iter(token_iter)? else {
+            return Err(anyhow!("while keyword must be succeeded by parentheses"));
+        };
+
         // parse condition expression
         let condition = Self::parse_expression(token_iter)?;
+
+        // closed parens
+        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
+            return Err(anyhow!("do-while loop parentheses not closed"));
+        };
+
+        // semicolon
+        let TokenType::Semicolon = Self::get_next_token_from_iter(token_iter)? else {
+            return Err(anyhow!("do-while loop must be succeeded by semicolon"));
+        };
 
         Ok(Self::Do {
             body: Box::new(body),
@@ -1213,6 +1256,66 @@ mod tests {
                 condition: Box::new(AstNode::NullExpression),
                 post_condition: Box::new(AstNode::NullExpression),
                 body: Box::new(AstNode::Constant { constant: 2 })
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_while_loop() {
+        let token_vec = vec![
+            TokenType::Keyword("while".into()),
+            TokenType::OpenParens,
+            TokenType::Identifier("a".into()),
+            TokenType::LessThan,
+            TokenType::IntLiteral(5),
+            TokenType::ClosedParens,
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+        ];
+        let statement: anyhow::Result<AstNode> =
+            AstNode::parse_statement(&mut peek_nth(token_vec.iter()));
+        assert_eq!(
+            statement.unwrap(),
+            AstNode::While {
+                condition: Box::new(AstNode::BinaryOp {
+                    operator: Operator::LessThan,
+                    expression: Box::new(AstNode::Variable {
+                        variable: "a".into()
+                    }),
+                    next_expression: Box::new(AstNode::Constant { constant: 5 })
+                }),
+                body: Box::new(AstNode::Constant { constant: 2 })
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_do_loop() {
+        let token_vec = vec![
+            TokenType::Keyword("do".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+            TokenType::Keyword("while".into()),
+            TokenType::OpenParens,
+            TokenType::Identifier("a".into()),
+            TokenType::LessThan,
+            TokenType::IntLiteral(5),
+            TokenType::ClosedParens,
+            TokenType::Semicolon,
+        ];
+        let statement: anyhow::Result<AstNode> =
+            AstNode::parse_statement(&mut peek_nth(token_vec.iter()));
+        assert_eq!(
+            statement.unwrap(),
+            AstNode::Do {
+                body: Box::new(AstNode::Constant { constant: 2 }),
+                condition: Box::new(AstNode::BinaryOp {
+                    operator: Operator::LessThan,
+                    expression: Box::new(AstNode::Variable {
+                        variable: "a".into()
+                    }),
+                    next_expression: Box::new(AstNode::Constant { constant: 5 })
+                }),
             }
         );
     }

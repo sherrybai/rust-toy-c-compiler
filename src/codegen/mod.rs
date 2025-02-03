@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, env::var, hash::Hash};
 
 use anyhow::anyhow;
 #[cfg(test)]
@@ -152,7 +152,6 @@ impl Codegen {
         };
 
         let mut result: String = String::new();
-        let mut explicit_return: bool = false;
         if let Some(s) = compound_statement {
             // only generate assembly for function node if it is a definition
             // (non-null function body)
@@ -174,13 +173,12 @@ impl Codegen {
             //     }
             // }
 
-            let generated_statement = self.generate_statement(s)?;
+            let generated_statement = self.generate_block_item(s)?;
             result.push_str(&generated_statement);
 
-            if !explicit_return {
-                // return 0
-                result.push_str(&Self::format_instruction("mov", vec!["w0", "0"]));
-            }
+            // if there is no explicit return statement, then return 0
+            // return statements will jump over this instruction to the .return label
+            result.push_str(&Self::format_instruction("mov", vec!["w0", "#0"]));
 
             // write label for jumping to early return
             result.push_str(&format!("{}:\n", ".return"));
@@ -191,7 +189,7 @@ impl Codegen {
         Ok(result)
     }
 
-    fn generate_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
+    fn generate_block_item(&mut self, node: &AstNode) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
         match node {
@@ -239,16 +237,21 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_statement
-                result.push_str(&self.generate_statement(&if_statement)?);
+                result.push_str(&self.generate_block_item(&if_statement)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
 
                 // jump here to execute else_expression (if not optional)
                 result.push_str(&format!("{}:\n", label_1));
                 if let Some(node) = else_statement {
-                    result.push_str(&self.generate_statement(&node)?);
+                    result.push_str(&self.generate_block_item(&node)?);
                 }
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
+            }
+            AstNode::Compound { block_item_list } => {
+                for block_item in block_item_list {
+                    result.push_str(&self.generate_block_item(block_item)?);
+                }
             }
             _ => {
                 result.push_str(&self.generate_expression(node)?);
@@ -471,6 +474,9 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -497,7 +503,8 @@ mod tests {
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -549,6 +556,9 @@ mod tests {
                     mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -634,6 +644,9 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -683,6 +696,9 @@ mod tests {
                 .L1:
                     mov	w0, 0
                 .L2:
+                    b	.return
+                    mov	w0, #0
+                .return:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -717,7 +733,8 @@ mod tests {
                     mov	w0, #1
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:
                     add	sp, sp, 16
                     ldp	x29, x30, [sp], 16
                     ret
@@ -845,7 +862,8 @@ mod tests {
                     str	w0, [sp, 16]
                     mov	w0, #2
                     str	w0, [sp, 12]
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
@@ -937,7 +955,8 @@ mod tests {
                     ldr	w0, [sp, 20]
                     ldr	w0, [sp, 16]
                     ldr	w0, [sp, 12]
-                    mov	w0, 0
+                    mov	w0, #0
+                .return:                    
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
@@ -982,7 +1001,7 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_statement(&if_statement).unwrap();
+        let result = codegen.generate_block_item(&if_statement).unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -990,6 +1009,7 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
+                    b	.return
                     b	.L2
                 .L1:
                 .L2:
@@ -1011,7 +1031,7 @@ mod tests {
         };
 
         let mut codegen: Codegen = Codegen::new();
-        let result = codegen.generate_statement(&if_statement).unwrap();
+        let result = codegen.generate_block_item(&if_statement).unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1019,9 +1039,11 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
+                    b	.return
                     b	.L2
                 .L1:
                     mov	w0, #3
+                    b	.return
                 .L2:
             "
         )

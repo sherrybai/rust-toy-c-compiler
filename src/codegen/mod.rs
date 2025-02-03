@@ -141,7 +141,7 @@ impl Codegen {
         let AstNode::Function {
             function_name,
             parameters,
-            compound_statement,
+            body: compound_statement,
         } = node
         else {
             return Err(anyhow!(
@@ -500,7 +500,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![statement],
             })),
         };
@@ -532,7 +532,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![],
             })),
         };
@@ -562,7 +562,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: None,
+            body: None,
         };
         let program = AstNode::Program {
             function_list: vec![function],
@@ -585,7 +585,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![statement],
             })),
         };
@@ -670,7 +670,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![statement],
             })),
         };
@@ -716,7 +716,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![statement],
             })),
         };
@@ -767,7 +767,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![statement_1],
             })),
         };
@@ -811,7 +811,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![statement_1, statement_2],
             })),
         };
@@ -839,7 +839,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![
                     statement_1,
                     AstNode::Compound {
@@ -921,7 +921,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![
                     statement_1,
                     statement_2,
@@ -1021,7 +1021,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![
                     statement_1,
                     statement_2,
@@ -1092,7 +1092,7 @@ mod tests {
         let function = AstNode::Function {
             function_name: "main".into(),
             parameters: vec![],
-            compound_statement: Some(Box::new(AstNode::Compound {
+            body: Some(Box::new(AstNode::Compound {
                 block_item_list: vec![
                     statement_1,
                     AstNode::Compound {

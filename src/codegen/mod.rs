@@ -193,12 +193,7 @@ impl Codegen {
         let mut result: String = String::new();
 
         match node {
-            AstNode::Return { expression } => {
-                let generated_expression: String = self.generate_expression(expression)?;
-                result.push_str(&generated_expression);
-                // jump to return label
-                result.push_str(&Self::format_instruction("b", vec![".return"]));
-            }
+            // declaration: can mutate variable map
             AstNode::Declare {
                 variable,
                 expression,
@@ -221,6 +216,24 @@ impl Codegen {
                 result.push_str(&self.generate_push_instruction("w0"));
                 self.variable_map
                     .insert(variable.clone(), self.stack_offset_bytes);
+            }
+            // statements: cannot mutate variable map
+            _ => {
+                result.push_str(&self.generate_statement(node)?);
+
+            }
+        }
+        Ok(result)
+    }
+
+    fn generate_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
+        let mut result = String::new();
+        match node {
+            AstNode::Return { expression } => {
+                let generated_expression: String = self.generate_expression(expression)?;
+                result.push_str(&generated_expression);
+                // jump to return label
+                result.push_str(&Self::format_instruction("b", vec![".return"]));
             }
             AstNode::If {
                 condition,

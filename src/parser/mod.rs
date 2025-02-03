@@ -86,6 +86,7 @@ pub enum AstNode {
         expression: Option<Box<Self>>,
     },
     // Expressions
+    NullExpression,
     BinaryOp {
         operator: Operator,
         expression: Box<Self>,
@@ -238,7 +239,7 @@ impl AstNode {
     }
 
     fn parse_statement(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
-        // <statement> ::= "return" <exp> ";"| <exp> ";" | "if" "(" <exp> ")" <statement> [ "else" <statement> ] | | "{" { <block-item> } "}
+        // <statement> ::= "return" <exp-option> ";"| <exp> ";" | "if" "(" <exp> ")" <statement> [ "else" <statement> ] | | "{" { <block-item> } "}
         let statement: AstNode;
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         match next_token {
@@ -344,7 +345,14 @@ impl AstNode {
     }
 
     fn parse_expression(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
+        // <exp-option> ::= <exp> | ""
         // <exp> ::= <id> "=" <exp> | <conditional-exp>
+        // expression option
+        // if next token is semicolon, this is a null expression
+        if let Some(TokenType::Semicolon) = token_iter.peek() {
+            return Ok(Self::NullExpression);
+        }
+
         let mut next_token: Option<&&TokenType> = token_iter.peek();
         if let Some(TokenType::Identifier(variable_name)) = next_token {
             // peek forward twice to check for '='
@@ -1135,5 +1143,13 @@ mod tests {
                 else_statement: None
             }
         );
+    }
+
+    #[test]
+    fn test_parse_null_expression() {
+        let token_vec = vec![TokenType::Semicolon];
+        let statement: anyhow::Result<AstNode> =
+            AstNode::parse_expression(&mut peek_nth(token_vec.iter()));
+        assert_eq!(statement.unwrap(), AstNode::NullExpression,);
     }
 }

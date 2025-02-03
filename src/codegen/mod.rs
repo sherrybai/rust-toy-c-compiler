@@ -171,7 +171,8 @@ impl Codegen {
             //     }
             // }
 
-            let generated_statement = self.generate_compound_statement(s)?;
+            let variable_map: HashMap<String, i32> = HashMap::new();
+            let generated_statement = self.generate_compound_statement(s, &variable_map)?;
             result.push_str(&generated_statement);
 
             // if there is no explicit return statement, then return 0
@@ -187,8 +188,23 @@ impl Codegen {
         Ok(result)
     }
 
+    fn generate_compound_statement(&mut self, node: &AstNode, variable_map: &HashMap<String, i32>) -> anyhow::Result<String> {
+        if let AstNode::Compound { block_item_list } = node {
+            let mut result = String::new();
+
+            // new variable map, cloning from outer scope
+            let mut new_variable_map: HashMap<String, i32> = variable_map.clone();
+
+            for block_item in block_item_list {
+                result.push_str(&self.generate_block_item(block_item, &mut new_variable_map)?);
+            }
+            Ok(result)
+        } else {
+            Err(anyhow!("Not a compound statement"))
+        }
+    }
+
     fn generate_block_item(&mut self, node: &AstNode, variable_map: &mut HashMap<String, i32>) -> anyhow::Result<String> {
-        println!("{:?}", variable_map);
         let mut result: String = String::new();
 
         match node {
@@ -213,6 +229,8 @@ impl Codegen {
                 // assume value lives in w0
                 // push onto stack
                 result.push_str(&self.generate_push_instruction("w0"));
+
+                // update variable map and current scope
                 variable_map.insert(variable.clone(), self.stack_offset_bytes);
             }
             // statements: cannot mutate variable map
@@ -259,30 +277,14 @@ impl Codegen {
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }
-            AstNode::Compound { block_item_list } => {
-                result.push_str(&self.generate_compound_statement(node)?);
+            AstNode::Compound { block_item_list: _ } => {
+                result.push_str(&self.generate_compound_statement(node, variable_map)?);
             }
             _ => {
                 result.push_str(&self.generate_expression(node, variable_map)?);
             }
         }
         Ok(result)
-    }
-
-    fn generate_compound_statement(&mut self, node: &AstNode) -> anyhow::Result<String> {
-        if let AstNode::Compound { block_item_list } = node {
-            let mut result = String::new();
-
-            // new variable map
-            let mut new_variable_map: HashMap<String, i32> = HashMap::new();
-
-            for block_item in block_item_list {
-                result.push_str(&self.generate_block_item(block_item, &mut new_variable_map)?);
-            }
-            Ok(result)
-        } else {
-            Err(anyhow!("Not a compound statement"))
-        }
     }
 
     fn generate_expression(&mut self, node: &AstNode, variable_map: &HashMap<String, i32>) -> anyhow::Result<String> {
@@ -298,7 +300,7 @@ impl Codegen {
             }
             AstNode::Variable { variable } => {
                 if !variable_map.contains_key(variable) {
-                    return Err(anyhow!("Variable not declared before assignment"));
+                    return Err(anyhow!("Variable not declared before read"));
                 }
                 let stack_offset = variable_map.get(variable).unwrap();
                 result.push_str(&self.generate_variable_read(*stack_offset));
@@ -987,6 +989,40 @@ mod tests {
                     ret
             "
         )
+    }
+
+    #[test]
+    fn test_variable_read_nested() {
+        let statement_1 = AstNode::Declare {
+            variable: "a".into(),
+            expression: Some(Box::new(AstNode::Constant { constant: 1 })),
+        };
+        let statement_2 = AstNode::Declare {
+            variable: "b".into(),
+            expression: Some(Box::new(AstNode::Constant { constant: 1 })),
+        };
+        let var_read_2 = AstNode::Variable {
+            variable: "b".into(),
+        };
+
+        let function = AstNode::Function {
+            function_name: "main".into(),
+            parameters: vec![],
+            compound_statement: Some(Box::new(AstNode::Compound { block_item_list: vec![
+                statement_1,
+                AstNode::Compound { block_item_list: vec![
+                    statement_2,
+                ]},
+                var_read_2,
+            ] } )),
+        };
+        let program = AstNode::Program {
+            function_list: vec![function],
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let result = codegen.codegen(program);
+        assert!(result.is_err_and(|e| e.to_string() == "Variable not declared before read"));
     }
 
     #[test]

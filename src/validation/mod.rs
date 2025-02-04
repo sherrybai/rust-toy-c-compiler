@@ -184,6 +184,12 @@ impl Validation {
                 self.validate_expression(if_expression)?;
                 self.validate_expression(else_expression)?;
             }
+            AstNode::Break => {
+                // do nothing
+            }
+            AstNode::Continue => {
+                // do nothing
+            }
             AstNode::Variable { variable: _ } => {
                 // do nothing
             }

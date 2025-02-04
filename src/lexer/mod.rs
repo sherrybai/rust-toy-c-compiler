@@ -36,7 +36,6 @@ pub enum TokenType {
     Assignment,
     Colon,
     QuestionMark,
-    // TODO: add tokens from stages 7-8
     Comma,
 }
 
@@ -81,7 +80,9 @@ impl TokenType {
             Self::OpenParens => r"\(",
             Self::ClosedParens => r"\)",
             Self::Semicolon => r";",
-            Self::Keyword(_) => r"\bint\b|\breturn\b|\bif\b|\belse\b",
+            // int, return, if, else, for, while, do, break, continue
+            // wrapped by \b to indicate word boundaries
+            Self::Keyword(_) => r"\bint\b|\breturn\b|\bif\b|\belse\b|\bfor\b|\bwhile\b|\bdo\b|\bbreak\b|\bcontinue\b",
             Self::Identifier(_) => r"[a-zA-Z]\w*",
             Self::IntLiteral(_) => r"[0-9]+",
             Self::Minus => r"\-",
@@ -218,6 +219,27 @@ mod tests {
             TokenType::QuestionMark,
             TokenType::Identifier("iff".into()),
             TokenType::Identifier("tiff".into()),
+        ];
+        assert_eq!(TokenType::lex(contents).unwrap(), expected);
+    }
+
+    #[test]
+    fn test_lex_stage_7_loop_keywords() {
+        let contents = "
+            for
+            while
+            do
+            break
+            continue
+            doobadeedoo
+        ";
+        let expected = vec![
+            TokenType::Keyword("for".into()), 
+            TokenType::Keyword("while".into()), 
+            TokenType::Keyword("do".into()), 
+            TokenType::Keyword("break".into()), 
+            TokenType::Keyword("continue".into()), 
+            TokenType::Identifier("doobadeedoo".into()),
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);
     }

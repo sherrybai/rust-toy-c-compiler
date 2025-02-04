@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, thread::current};
 
 use anyhow::anyhow;
 #[cfg(test)]
@@ -126,15 +126,6 @@ impl Codegen {
 
     fn generate_function_epilogue(&mut self) -> String {
         let mut result = String::new();
-
-        // need to restore stack pointer
-        let stack_pointer_offset = (-self.stack_offset_bytes + 12) / 16 * 16; // take next highest 16 byte value
-        if stack_pointer_offset != 0 {
-            result.push_str(&Self::format_instruction(
-                "add",
-                vec!["sp", "sp", &format!("{}", stack_pointer_offset)[..]],
-            ));
-        }
         // read frame pointer and link register (return address) from stack
         // stack pointer remains 16 byte aligned
         result.push_str(&Self::format_instruction(
@@ -202,19 +193,29 @@ impl Codegen {
             // new variable map, cloning from outer scope
             let mut new_variable_map: HashMap<String, i32> = codegen_context.variable_map.clone();
             // track variables in the current scope
-            let mut current_scope: HashSet<String> = HashSet::new();
+            let mut new_current_scope: HashSet<String> = HashSet::new();
 
             for block_item in block_item_list {
                 result.push_str(&self.generate_block_item(
                     block_item,
                     &mut CodegenContext {
                         variable_map: &mut new_variable_map,
-                        current_scope: &mut current_scope,
+                        current_scope: &mut new_current_scope,
                         break_location_label: codegen_context.break_location_label,
                         continue_location_label: codegen_context.continue_location_label,
                     },
                 )?);
             }
+
+            // deallocate variables from the current scope
+            for _ in new_current_scope {
+                self.stack_offset_bytes += 4;
+                // free space if needed
+                if self.stack_offset_bytes % 16 == 0 {
+                    result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
+                };
+            }
+
             Ok(result)
         } else {
             Err(anyhow!("Not a compound statement"))
@@ -293,6 +294,15 @@ impl Codegen {
                 let generated_expression: String =
                     self.generate_expression(expression, codegen_context)?;
                 result.push_str(&generated_expression);
+
+                // need to restore stack pointer
+                let stack_pointer_offset = (-self.stack_offset_bytes + 12) / 16 * 16; // take next highest 16 byte value
+                if stack_pointer_offset != 0 {
+                    result.push_str(&Self::format_instruction(
+                        "add",
+                        vec!["sp", "sp", &format!("{}", stack_pointer_offset)[..]],
+                    ));
+                }
                 // jump to return label
                 result.push_str(&Self::format_instruction("b", vec![".Lreturn"]));
             }
@@ -414,6 +424,7 @@ impl Codegen {
                         continue_location_label: Some(end_of_body_label),
                     },
                 )?);
+
                 // mark end of body
                 result.push_str(&format!("{}:\n", end_of_body_label));
 
@@ -432,6 +443,16 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("b", vec![condition_label]));
                 // mark end of loop
                 result.push_str(&format!("{}:\n", end_of_loop_label));
+
+                // deallocate variables from the current scope
+                for _ in new_current_scope {
+                self.stack_offset_bytes += 4;
+                // free space if needed
+                if self.stack_offset_bytes % 16 == 0 {
+                    result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
+                };
+            }
+
             }
             AstNode::While { condition, body } => {
                 let condition_label = &format!(".L{:?}", self.label_counter);

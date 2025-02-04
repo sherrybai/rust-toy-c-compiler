@@ -218,33 +218,46 @@ impl Codegen {
                 variable,
                 expression,
             } => {
-                if current_scope.contains(variable) {
-                    return Err(anyhow!("Variable already declared"));
-                }
-
-                let generated_expression: String;
-                if let Some(nested_expression) = expression {
-                    // write expression
-                    generated_expression =
-                        self.generate_expression(nested_expression, &variable_map)?;
-                } else {
-                    // initialize variable to 0
-                    generated_expression = Self::format_instruction("mov", vec!["w0", "0"]);
-                }
-                result.push_str(&generated_expression);
-                // assume value lives in w0
-                // push onto stack
-                result.push_str(&self.generate_push_instruction("w0"));
-
-                // update variable map and current scope
-                variable_map.insert(variable.clone(), self.stack_offset_bytes);
-                current_scope.insert(variable.clone());
+                result.push_str(&self.generate_declaration(variable, expression, variable_map, current_scope)?);
             }
             // statements: cannot mutate variable map
             _ => {
-                result.push_str(&self.generate_statement(node, &variable_map)?);
+                result.push_str(&self.generate_statement(node, variable_map)?);
             }
         }
+        Ok(result)
+    }
+
+    fn generate_declaration(&mut self,
+        variable: &String,
+        expression: &Option<Box<AstNode>>,
+        variable_map: &mut HashMap<String, i32>,
+        current_scope: &mut HashSet<String>,
+    ) -> anyhow::Result<String> {
+        let mut result: String = String::new();
+
+        if current_scope.contains(variable) {
+            return Err(anyhow!("Variable already declared"));
+        }
+
+        let generated_expression: String;
+        if let Some(nested_expression) = expression {
+            // write expression
+            generated_expression =
+                self.generate_expression(nested_expression, &variable_map)?;
+        } else {
+            // initialize variable to 0
+            generated_expression = Self::format_instruction("mov", vec!["w0", "0"]);
+        }
+        result.push_str(&generated_expression);
+        // assume value lives in w0
+        // push onto stack
+        result.push_str(&self.generate_push_instruction("w0"));
+
+        // update variable map and current scope
+        variable_map.insert(variable.clone(), self.stack_offset_bytes);
+        current_scope.insert(variable.clone());
+
         Ok(result)
     }
 
@@ -288,6 +301,52 @@ impl Codegen {
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }
+            AstNode::For { initial_decl_or_exp, condition, post_condition, body } => {
+                // for loop is its own scope
+                // new variable map, cloning from outer scope
+                let mut new_variable_map: HashMap<String, i32> = variable_map.clone();
+                // track variables in the current scope
+                let mut new_current_scope: HashSet<String> = HashSet::new();
+
+                // evaluate initial declaration or expression
+                match **initial_decl_or_exp {
+                    AstNode::Declare { ref variable, ref expression } => {                        
+                        result.push_str(&self.generate_declaration(&variable, &expression, &mut new_variable_map, &mut new_current_scope)?);
+                    }
+                    _ => { // expression
+                        result.push_str(&self.generate_expression(&initial_decl_or_exp, &new_variable_map)?);
+                    }
+                }
+
+                let condition_label = &format!(".L{:?}", self.label_counter);
+                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 1);
+                // mark condition with label
+                result.push_str(&format!("{}:\n", condition_label));
+                // evaluate condition
+                result.push_str(&self.generate_expression(&condition, &new_variable_map)?);
+                
+                // if condition is false, jump to end
+                result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                result.push_str(&Self::format_instruction("beq", vec![end_of_loop_label]));
+
+                // execute body
+                result.push_str(&self.generate_statement(&body, &new_variable_map)?);
+
+                // execute post_condition
+                result.push_str(&self.generate_expression(&post_condition, &new_variable_map)?);
+
+                // jump to condition label
+                result.push_str(&Self::format_instruction("b", vec![condition_label]));
+                // mark end of loop
+                result.push_str(&format!("{}:\n", end_of_loop_label));
+
+            }
+            AstNode::While { condition, body } => {
+
+            }
+            AstNode::Do { body, condition } => {
+
+            }
             AstNode::Compound { block_item_list: _ } => {
                 result.push_str(&self.generate_compound_statement(node, variable_map)?);
             }
@@ -306,6 +365,7 @@ impl Codegen {
         let mut result: String = String::new();
 
         match node {
+            AstNode::NullExpression => {}  // do nothing
             AstNode::Constant { constant } => {
                 let constant_str = format!("#{}", constant);
                 result.push_str(&Self::format_instruction(
@@ -1200,6 +1260,66 @@ mod tests {
                 .L1:
                     mov	w0, #3
                     b	.return
+                .L2:
+            "
+        )
+    }
+
+    #[test]
+    fn test_for_loop() {
+        let for_loop = AstNode::For {
+            initial_decl_or_exp: Box::new(AstNode::Declare {
+                variable: "a".into(),
+                expression: Some(Box::new(AstNode::Constant { constant: 0 }))
+            }),
+            condition: Box::new(AstNode::BinaryOp {
+                operator: Operator::LessThan,
+                expression: Box::new(AstNode::Variable {
+                    variable: "a".into()
+                }),
+                next_expression: Box::new(AstNode::Constant { constant: 5 })
+            }),
+            post_condition: Box::new(AstNode::Assign {
+                variable: "a".into(),
+                expression: Box::new(AstNode::BinaryOp {
+                    operator: Operator::Addition,
+                    expression: Box::new(AstNode::Variable {
+                        variable: "a".into()
+                    }),
+                    next_expression: Box::new(AstNode::Constant { constant: 1 })
+                })
+            }),
+            body: Box::new(AstNode::Constant { constant: 2 })
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        let variable_map: HashMap<String, i32> = HashMap::new();
+        let result = codegen
+            .generate_statement(&for_loop, &variable_map)
+            .unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                    mov	w0, #0
+                    sub	sp, sp, #16
+                    str	w0, [sp, 12]
+                .L1:
+                    ldr	w0, [sp, 12]
+                    str	w0, [sp, 8]
+                    mov	w0, #5
+                    ldr	w1, [sp, 8]
+                    cmp	w1, w0
+                    cset	w0, lt
+                    cmp	w0, 0
+                    beq	.L2
+                    mov	w0, #2
+                    ldr	w0, [sp, 12]
+                    str	w0, [sp, 8]
+                    mov	w0, #1
+                    ldr	w1, [sp, 8]
+                    add	w0, w1, w0
+                    str	w0, [sp, 12]
+                    b	.L1
                 .L2:
             "
         )

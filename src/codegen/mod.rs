@@ -1063,9 +1063,9 @@ mod tests {
                     mov	w0, #1
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
+                    add	sp, sp, 16
                     mov	w0, #0
                 .Lreturn:
-                    add	sp, sp, 16
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1142,9 +1142,9 @@ mod tests {
                     str	w0, [sp, 12]
                     mov	w0, #2
                     str	w0, [sp, 8]
+                    add	sp, sp, 16
                     mov	w0, #0
                 .Lreturn:
-                    add	sp, sp, 16
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1247,9 +1247,10 @@ mod tests {
                     str	w0, [sp, 16]
                     mov	w0, #2
                     str	w0, [sp, 12]
+                    add	sp, sp, 16
+                    add	sp, sp, 16
                     mov	w0, #0
                 .Lreturn:
-                    add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1342,9 +1343,10 @@ mod tests {
                     ldr	w0, [sp, 20]
                     ldr	w0, [sp, 16]
                     ldr	w0, [sp, 12]
+                    add	sp, sp, 16
+                    add	sp, sp, 16
                     mov	w0, #0
                 .Lreturn:                    
-                    add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1558,6 +1560,7 @@ mod tests {
                     str	w0, [sp, 12]
                     b	.L1
                 .L3:
+                    add	sp, sp, 16
             "
         )
     }

@@ -190,6 +190,9 @@ impl Validation {
             AstNode::Constant { constant: _ } => {
                 // do nothing
             }
+            AstNode::NullExpression => {
+                // do nothing
+            }
             _ => {
                 println!("{:?}", node);
                 return Err(anyhow!("Invalid expression node variant"));

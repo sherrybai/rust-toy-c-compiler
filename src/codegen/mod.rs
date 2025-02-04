@@ -166,11 +166,11 @@ impl Codegen {
             result.push_str(&generated_statement);
 
             // if there is no explicit return statement, then return 0
-            // return statements will jump over this instruction to the .return label
+            // return statements will jump over this instruction to the .Lreturn label
             result.push_str(&Self::format_instruction("mov", vec!["w0", "#0"]));
 
             // write label for jumping to early return
-            result.push_str(&format!("{}:\n", ".return"));
+            result.push_str(&format!("{}:\n", ".Lreturn"));
             result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
@@ -273,7 +273,7 @@ impl Codegen {
                     self.generate_expression(expression, variable_map)?;
                 result.push_str(&generated_expression);
                 // jump to return label
-                result.push_str(&Self::format_instruction("b", vec![".return"]));
+                result.push_str(&Self::format_instruction("b", vec![".Lreturn"]));
             }
             AstNode::If {
                 condition,
@@ -320,6 +320,7 @@ impl Codegen {
 
                 let condition_label = &format!(".L{:?}", self.label_counter);
                 let end_of_loop_label = &format!(".L{:?}", self.label_counter + 1);
+                self.label_counter += 2;
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
                 // evaluate condition
@@ -342,10 +343,47 @@ impl Codegen {
 
             }
             AstNode::While { condition, body } => {
+                let condition_label = &format!(".L{:?}", self.label_counter);
+                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 1);
+                self.label_counter += 2;
+                // mark condition with label
+                result.push_str(&format!("{}:\n", condition_label));
+                // evaluate condition
+                result.push_str(&self.generate_expression(&condition, variable_map)?);
+                
+                // if condition is false, jump to end
+                result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                result.push_str(&Self::format_instruction("beq", vec![end_of_loop_label]));
 
+                // execute body
+                result.push_str(&self.generate_statement(&body, variable_map)?);
+
+                // jump to condition label
+                result.push_str(&Self::format_instruction("b", vec![condition_label]));
+                // mark end of loop
+                result.push_str(&format!("{}:\n", end_of_loop_label));
             }
             AstNode::Do { body, condition } => {
+                let start_of_body_label = &format!(".L{:?}", self.label_counter);
+                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 1);
+                self.label_counter += 2;
+                // mark start of body with label
+                result.push_str(&format!("{}:\n", start_of_body_label));
 
+                // execute body
+                result.push_str(&self.generate_statement(&body, variable_map)?);
+
+                // evaluate condition
+                result.push_str(&self.generate_expression(&condition, variable_map)?);
+                
+                // if condition is false, jump to end
+                result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
+                result.push_str(&Self::format_instruction("beq", vec![end_of_loop_label]));
+
+                // jump to start of loop
+                result.push_str(&Self::format_instruction("b", vec![start_of_body_label]));
+                // mark end of loop
+                result.push_str(&format!("{}:\n", end_of_loop_label));
             }
             AstNode::Compound { block_item_list: _ } => {
                 result.push_str(&self.generate_compound_statement(node, variable_map)?);
@@ -578,9 +616,9 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
-                    b	.return
+                    b	.Lreturn
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -610,7 +648,7 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -664,9 +702,9 @@ mod tests {
                     mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
-                    b	.return
+                    b	.Lreturn
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -754,9 +792,9 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
-                    b	.return
+                    b	.Lreturn
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -808,9 +846,9 @@ mod tests {
                 .L1:
                     mov	w0, 0
                 .L2:
-                    b	.return
+                    b	.Lreturn
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -848,7 +886,7 @@ mod tests {
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     add	sp, sp, 16
                     ldp	x29, x30, [sp], 16
                     ret
@@ -927,7 +965,7 @@ mod tests {
                     mov	w0, #2
                     str	w0, [sp, 8]
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     add	sp, sp, 16
                     ldp	x29, x30, [sp], 16
                     ret
@@ -1032,7 +1070,7 @@ mod tests {
                     mov	w0, #2
                     str	w0, [sp, 12]
                     mov	w0, #0
-                .return:
+                .Lreturn:
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
@@ -1127,7 +1165,7 @@ mod tests {
                     ldr	w0, [sp, 16]
                     ldr	w0, [sp, 12]
                     mov	w0, #0
-                .return:                    
+                .Lreturn:                    
                     add	sp, sp, 32
                     ldp	x29, x30, [sp], 16
                     ret
@@ -1222,7 +1260,7 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
-                    b	.return
+                    b	.Lreturn
                     b	.L2
                 .L1:
                 .L2:
@@ -1255,11 +1293,11 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
-                    b	.return
+                    b	.Lreturn
                     b	.L2
                 .L1:
                     mov	w0, #3
-                    b	.return
+                    b	.Lreturn
                 .L2:
             "
         )
@@ -1319,6 +1357,84 @@ mod tests {
                     ldr	w1, [sp, 8]
                     add	w0, w1, w0
                     str	w0, [sp, 12]
+                    b	.L1
+                .L2:
+            "
+        )
+    }
+
+    #[test]
+    fn test_while_loop() {
+        let while_loop = AstNode::While {
+            condition: Box::new(AstNode::BinaryOp {
+                operator: Operator::LessThan,
+                expression: Box::new(AstNode::Variable {
+                    variable: "a".into()
+                }),
+                next_expression: Box::new(AstNode::Constant { constant: 5 })
+            }),
+            body: Box::new(AstNode::Constant { constant: 2 })
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        codegen.stack_offset_bytes = -4;
+        let mut variable_map: HashMap<String, i32> = HashMap::new();
+        variable_map.insert("a".into(), -4);
+        let result = codegen
+            .generate_statement(&while_loop, &variable_map)
+            .unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .L1:
+                    ldr	w0, [sp, 12]
+                    str	w0, [sp, 8]
+                    mov	w0, #5
+                    ldr	w1, [sp, 8]
+                    cmp	w1, w0
+                    cset	w0, lt
+                    cmp	w0, 0
+                    beq	.L2
+                    mov	w0, #2
+                    b	.L1
+                .L2:
+            "
+        )
+    }
+
+    #[test]
+    fn test_do_loop() {
+        let do_loop = AstNode::Do {
+            body: Box::new(AstNode::Constant { constant: 2 }),
+            condition: Box::new(AstNode::BinaryOp {
+                operator: Operator::LessThan,
+                expression: Box::new(AstNode::Variable {
+                    variable: "a".into()
+                }),
+                next_expression: Box::new(AstNode::Constant { constant: 5 })
+            }),
+        };
+
+        let mut codegen: Codegen = Codegen::new();
+        codegen.stack_offset_bytes = -4;
+        let mut variable_map: HashMap<String, i32> = HashMap::new();
+        variable_map.insert("a".into(), -4);
+        let result = codegen
+            .generate_statement(&do_loop, &variable_map)
+            .unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .L1:
+                    mov	w0, #2
+                    ldr	w0, [sp, 12]
+                    str	w0, [sp, 8]
+                    mov	w0, #5
+                    ldr	w1, [sp, 8]
+                    cmp	w1, w0
+                    cset	w0, lt
+                    cmp	w0, 0
+                    beq	.L2
                     b	.L1
                 .L2:
             "

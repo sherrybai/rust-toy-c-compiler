@@ -1,10 +1,10 @@
-use std::{collections::{HashMap, HashSet}, thread::current};
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 #[cfg(test)]
 use assert_str::assert_str_trim_eq;
 
-use crate::{codegen, parser::{AstNode, Operator}};
+use crate::parser::{AstNode, Operator};
 
 const INDENT: &str = "	";
 
@@ -160,13 +160,13 @@ impl Codegen {
             // set up stack frame
             result.push_str(&Self::generate_function_prologue());
 
-            let mut codegen_context = CodegenContext {
+            let codegen_context = CodegenContext {
                 variable_map: &mut HashMap::new(),
                 current_scope: &mut HashSet::new(),
                 break_location_label: None,
                 continue_location_label: None,
             };
-            let generated_statement = self.generate_compound_statement(s, &mut codegen_context)?;
+            let generated_statement = self.generate_compound_statement(s, &codegen_context)?;
             result.push_str(&generated_statement);
 
             // if there is no explicit return statement, then return 0
@@ -325,7 +325,7 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_statement
                 result.push_str(&self.generate_statement(
-                    &if_statement,
+                    if_statement,
                     codegen_context,
                 )?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
@@ -334,7 +334,7 @@ impl Codegen {
                 result.push_str(&format!("{}:\n", label_1));
                 if let Some(node) = else_statement {
                     result.push_str(&self.generate_statement(
-                        &node,
+                        node,
                         codegen_context,
                     )?);
                 }
@@ -360,8 +360,8 @@ impl Codegen {
                         ref expression,
                     } => {
                         result.push_str(&self.generate_declaration(
-                            &variable,
-                            &expression,
+                            variable,
+                            expression,
                             &mut CodegenContext {
                                 variable_map: &mut new_variable_map,
                                 current_scope: &mut new_current_scope,
@@ -373,7 +373,7 @@ impl Codegen {
                     _ => {
                         // expression
                         result.push_str(&self.generate_expression(
-                            &initial_decl_or_exp,
+                            initial_decl_or_exp,
                             &CodegenContext {
                                 variable_map: &mut new_variable_map,
                                 current_scope: codegen_context.current_scope,
@@ -391,7 +391,7 @@ impl Codegen {
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
                 // evaluate condition
-                let actual_condition: &Box<AstNode>;
+                #[allow(clippy::borrowed_box)] let actual_condition: &Box<AstNode>; 
                 let fake_true_condition = Box::new(AstNode::Constant { constant: 1 });
                 if let AstNode::NullExpression = **condition {
                     // replace with non-zero constant
@@ -401,7 +401,7 @@ impl Codegen {
                 }
 
                 result.push_str(&self.generate_expression(
-                    &actual_condition,
+                    actual_condition,
                     &CodegenContext {
                         variable_map: &mut new_variable_map,
                         current_scope: codegen_context.current_scope,
@@ -416,7 +416,7 @@ impl Codegen {
 
                 // execute body
                 result.push_str(&self.generate_statement(
-                    &body,
+                    body,
                     &mut CodegenContext {
                         variable_map: &mut new_variable_map,
                         current_scope: codegen_context.current_scope,
@@ -430,7 +430,7 @@ impl Codegen {
 
                 // execute post_condition
                 result.push_str(&self.generate_expression(
-                    &post_condition,
+                    post_condition,
                     &CodegenContext {
                         variable_map: &mut new_variable_map,
                         current_scope: codegen_context.current_scope,
@@ -463,7 +463,7 @@ impl Codegen {
                 result.push_str(&format!("{}:\n", condition_label));
                 // evaluate condition
                 result.push_str(&self.generate_expression(
-                    &condition,
+                    condition,
                     codegen_context,
                 )?);
 
@@ -473,7 +473,7 @@ impl Codegen {
 
                 // execute body
                 result.push_str(&self.generate_statement(
-                    &body,
+                    body,
                     &mut CodegenContext {
                         variable_map: codegen_context.variable_map,
                         current_scope: codegen_context.current_scope,
@@ -499,7 +499,7 @@ impl Codegen {
 
                 // execute body
                 result.push_str(&self.generate_statement(
-                    &body,
+                    body,
                     &mut CodegenContext {
                         variable_map: codegen_context.variable_map,
                         current_scope: codegen_context.current_scope,
@@ -512,7 +512,7 @@ impl Codegen {
 
                 // evaluate condition
                 result.push_str(&self.generate_expression(
-                    &condition,
+                    condition,
                     codegen_context,
                 )?);
 
@@ -728,14 +728,14 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_expression
                 result.push_str(&self.generate_expression(
-                    &if_expression,
+                    if_expression,
                     codegen_context,
                 )?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
                 // jump here to execute else_expression
                 result.push_str(&format!("{}:\n", label_1));
                 result.push_str(&self.generate_expression(
-                    &else_expression,
+                    else_expression,
                     codegen_context,
                 )?);
                 // mark end of this block

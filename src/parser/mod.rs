@@ -190,30 +190,30 @@ impl AstNode {
                     // advance past semicolon
                     Self::get_next_token_from_iter(token_iter)?;
                     // function declaration
-                    return Ok(Self::Function {
+                    Ok(Self::Function {
                         function_name,
                         parameters,
                         body: None,
-                    });
+                    })
                 }
                 TokenType::OpenBrace => {
                     // parse compound statement
                     let statement = Self::parse_statement(token_iter)?;
-                    return Ok(Self::Function {
+                    Ok(Self::Function {
                         function_name,
                         parameters,
                         body: Some(Box::new(statement)),
-                    });
+                    })
                 }
                 _ => {
-                    return Err(anyhow!(
+                    Err(anyhow!(
                         "No semicolon or open brace following function parameters"
-                    ));
+                    ))
                 }
             }
         } else {
-            return Err(anyhow!("Missing token after function parameters"));
-        };
+            Err(anyhow!("Missing token after function parameters"))
+        }
     }
 
     fn parse_block_item(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
@@ -221,10 +221,10 @@ impl AstNode {
         // <declaration> ::= "int" <id> [ = <exp> ] ";"
         if let Some(TokenType::Keyword(s)) = token_iter.peek() {
             if s == "int" {
-                return Ok(Self::parse_declaration(token_iter)?);
+                return Self::parse_declaration(token_iter);
             }
         }
-        Ok(Self::parse_statement(token_iter)?)
+        Self::parse_statement(token_iter)
     }
 
     fn parse_declaration(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {

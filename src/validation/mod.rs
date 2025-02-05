@@ -104,7 +104,7 @@ impl Validation {
                 match **initial_decl_or_exp {
                     AstNode::Declare { variable: _, ref expression } => {
                         if let Some(exp) = expression {
-                            self.validate_expression(&exp)?;
+                            self.validate_expression(exp)?;
                         }
                     }
                     _ => {

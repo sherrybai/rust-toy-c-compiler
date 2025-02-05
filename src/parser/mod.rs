@@ -6,7 +6,7 @@ use anyhow::Context;
 use itertools::peek_nth;
 use itertools::PeekNth;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
     Negation,
     BitwiseComplement,
@@ -54,7 +54,7 @@ impl Operator {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Program {
         function_list: Vec<Self>,

@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, fmt::format, hash::Hash};
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
 #[cfg(test)]
@@ -738,6 +738,49 @@ impl Codegen {
                     return Err(anyhow!("Continue found outside of loop"));
                 }
             }
+            AstNode::FunctionCall {
+                function_name,
+                parameters
+            } => {
+                // first 8 registers are saved in registers
+                let mut register_saved_params: Vec<AstNode> = parameters.clone();
+                // truncates register_saved_params to 8 values
+                let stack_saved_params = register_saved_params.split_off(8);
+
+                // push any stack-saved parameters to the stack
+                for p in stack_saved_params.iter().rev() {
+                    result.push_str(&self.generate_expression(p, codegen_context)?);
+                    result.push_str(&self.generate_push_instruction("w0"));
+                }
+                // save register-saved params to registers
+                // do this in reverse so that w0 can be mutated -> save first parameter in w0 at the end
+                for (i, p) in register_saved_params.iter().enumerate().rev() {
+                    let register: &str = &format!("w{}", i);
+                    result.push_str(&self.generate_expression(p, codegen_context)?);
+                    result.push_str(&Self::format_instruction("mov", vec![register, "w0"]));
+                }
+                // save old stack offset and reset to 0 for function call
+                let old_stack_offset = self.stack_offset_bytes;
+                self.stack_offset_bytes = 0;
+                
+                // write the function call
+                let param_iter = std::iter::repeat_n("int", parameters.len());
+                let param_str: String = itertools::intersperse(param_iter, ",").collect();
+                let function_call_str = format!("{}({})", function_name, param_str);
+                result.push_str(&Self::format_instruction("bl", vec![&function_call_str]));
+
+                // restore old stack offset
+                self.stack_offset_bytes = old_stack_offset;
+
+                // deallocate off any remaining stack-saved parameters
+                for _ in stack_saved_params {
+                    self.stack_offset_bytes += 4;
+                    // free space if needed
+                    if self.stack_offset_bytes % 16 == 0 {
+                        result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
+                    };
+                }
+            }
             _ => {
                 return Err(anyhow!("Malformed expression"));
             }
@@ -829,6 +872,70 @@ mod tests {
                 str	w7, [sp, 0]
                 ldr	w0, [sp, 32]
                 add	sp, sp, 32
+                b	.Lreturn
+                mov	w0, #0
+            .Lreturn:
+                ldp	x29, x30, [sp], 16
+                ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_function_call_with_parameters() {
+        let expression = Box::new(AstNode::FunctionCall { 
+            function_name: "foo".into(), 
+            parameters: vec![
+                AstNode::Constant { constant: 1 },
+                AstNode::Constant { constant: 2 },
+                AstNode::Constant { constant: 3 },
+                AstNode::Constant { constant: 4 },
+                AstNode::Constant { constant: 5 },
+                AstNode::Constant { constant: 6 },
+                AstNode::Constant { constant: 7 },
+                AstNode::Constant { constant: 8 },
+                AstNode::Constant { constant: 9 },
+            ]
+        });
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
+            function_name: "main".into(),
+            parameters: vec![],
+            body: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
+        };
+
+        let mut codegen = Codegen::new();
+        let result = codegen.generate_function(&function).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .globl _main
+            _main:
+                stp	x29, x30, [sp, -16]!
+                mov	x29, sp
+                mov	w0, #9
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
+                mov	w0, #8
+                mov	w7, w0
+                mov	w0, #7
+                mov	w6, w0
+                mov	w0, #6
+                mov	w5, w0
+                mov	w0, #5
+                mov	w4, w0
+                mov	w0, #4
+                mov	w3, w0
+                mov	w0, #3
+                mov	w2, w0
+                mov	w0, #2
+                mov	w1, w0
+                mov	w0, #1
+                mov	w0, w0
+                bl	foo(int,int,int,int,int,int,int,int,int)
+                add	sp, sp, 16
                 b	.Lreturn
                 mov	w0, #0
             .Lreturn:

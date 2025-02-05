@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, fmt::format, hash::Hash};
 
 use anyhow::anyhow;
 #[cfg(test)]
@@ -160,9 +160,30 @@ impl Codegen {
             // set up stack frame
             result.push_str(&Self::generate_function_prologue());
 
+            // add function parameters to variable map
+            let mut variable_map: HashMap<String, i32> = HashMap::new();
+            let mut current_scope: HashSet<String> = HashSet::new();
+
+            for (i, param) in parameters.iter().enumerate() {
+                if i < 8 {  // read from register
+                    // push the value from register to the stack
+                    let register: &str = &format!("w{}", i);
+                    result.push_str(&self.generate_push_instruction(register));
+                    // add to variable map
+                    variable_map.insert(param.clone(), self.stack_offset_bytes);                
+                } else {
+                    // stored in stack
+                    // add to variable map
+                    let stack_offset_bytes: i32 = -4 * (i32::try_from(i)? - 8);  // 9th param at offset 0, 10th param at offset -4, ...
+                    variable_map.insert(param.clone(), stack_offset_bytes);
+                }
+                current_scope.insert(param.clone());
+            }
+
+            // generate function body
             let codegen_context = CodegenContext {
-                variable_map: &mut HashMap::new(),
-                current_scope: &mut HashSet::new(),
+                variable_map: &mut variable_map,
+                current_scope: &mut current_scope,
                 break_location_label: None,
                 continue_location_label: None,
             };
@@ -761,6 +782,58 @@ mod tests {
                 .Lreturn:
                     ldp	x29, x30, [sp], 16
                     ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_function_with_parameters() {
+        let expression = Box::new(AstNode::Variable { variable: "i".into() });
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
+            function_name: "foo".into(),
+            parameters: vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                "e".into(),
+                "f".into(),
+                "g".into(),
+                "h".into(),
+                "i".into(),
+            ],
+            body: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
+        };
+
+        let mut codegen = Codegen::new();
+        let result = codegen.generate_function(&function).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .globl _foo
+            _foo:
+                stp	x29, x30, [sp, -16]!
+                mov	x29, sp
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
+                str	w1, [sp, 8]
+                str	w2, [sp, 4]
+                str	w3, [sp, 0]
+                sub	sp, sp, #16
+                str	w4, [sp, 12]
+                str	w5, [sp, 8]
+                str	w6, [sp, 4]
+                str	w7, [sp, 0]
+                ldr	w0, [sp, 32]
+                add	sp, sp, 32
+                b	.Lreturn
+                mov	w0, #0
+            .Lreturn:
+                ldp	x29, x30, [sp], 16
+                ret
             "
         )
     }

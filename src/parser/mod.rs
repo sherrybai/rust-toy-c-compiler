@@ -205,11 +205,9 @@ impl AstNode {
                         body: Some(Box::new(statement)),
                     })
                 }
-                _ => {
-                    Err(anyhow!(
-                        "No semicolon or open brace following function parameters"
-                    ))
-                }
+                _ => Err(anyhow!(
+                    "No semicolon or open brace following function parameters"
+                )),
             }
         } else {
             Err(anyhow!("Missing token after function parameters"))
@@ -1312,12 +1310,9 @@ mod tests {
         assert_eq!(
             statement.unwrap(),
             AstNode::Do {
-                body: Box::new(AstNode::Compound { 
-                    block_item_list: vec![
-                        AstNode::Break,
-                        AstNode::Continue,
-                    ]
-                 }),
+                body: Box::new(AstNode::Compound {
+                    block_item_list: vec![AstNode::Break, AstNode::Continue,]
+                }),
                 condition: Box::new(AstNode::BinaryOp {
                     operator: Operator::LessThan,
                     expression: Box::new(AstNode::Variable {

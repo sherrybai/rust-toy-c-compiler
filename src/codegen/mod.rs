@@ -118,7 +118,7 @@ impl Codegen {
             "stp",
             vec!["x29", "x30", "[sp, -16]!"],
         ));
-        // stack pointer now points to frame pointer (top of the caller function’s stack frame)
+        // frame pointer (top of the caller function’s stack frame) now points to stack pointer
         // top of caller's stack frame is bottom of callee's stack frame
         result.push_str(&Self::format_instruction("mov", vec!["x29", "sp"]));
         result
@@ -312,10 +312,7 @@ impl Codegen {
                 else_statement,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -324,19 +321,13 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_statement
-                result.push_str(&self.generate_statement(
-                    if_statement,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_statement(if_statement, codegen_context)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
 
                 // jump here to execute else_expression (if not optional)
                 result.push_str(&format!("{}:\n", label_1));
                 if let Some(node) = else_statement {
-                    result.push_str(&self.generate_statement(
-                        node,
-                        codegen_context,
-                    )?);
+                    result.push_str(&self.generate_statement(node, codegen_context)?);
                 }
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
@@ -349,7 +340,8 @@ impl Codegen {
             } => {
                 // for loop is its own scope
                 // new variable map, cloning from outer scope
-                let mut new_variable_map: HashMap<String, i32> = codegen_context.variable_map.clone();
+                let mut new_variable_map: HashMap<String, i32> =
+                    codegen_context.variable_map.clone();
                 // track variables in the current scope
                 let mut new_current_scope: HashSet<String> = HashSet::new();
 
@@ -391,7 +383,8 @@ impl Codegen {
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
                 // evaluate condition
-                #[allow(clippy::borrowed_box)] let actual_condition: &Box<AstNode>; 
+                #[allow(clippy::borrowed_box)]
+                let actual_condition: &Box<AstNode>;
                 let fake_true_condition = Box::new(AstNode::Constant { constant: 1 });
                 if let AstNode::NullExpression = **condition {
                     // replace with non-zero constant
@@ -446,13 +439,12 @@ impl Codegen {
 
                 // deallocate variables from the current scope
                 for _ in new_current_scope {
-                self.stack_offset_bytes += 4;
-                // free space if needed
-                if self.stack_offset_bytes % 16 == 0 {
-                    result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
-                };
-            }
-
+                    self.stack_offset_bytes += 4;
+                    // free space if needed
+                    if self.stack_offset_bytes % 16 == 0 {
+                        result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
+                    };
+                }
             }
             AstNode::While { condition, body } => {
                 let condition_label = &format!(".L{:?}", self.label_counter);
@@ -462,10 +454,7 @@ impl Codegen {
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 // if condition is false, jump to end
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -511,10 +500,7 @@ impl Codegen {
                 result.push_str(&format!("{}:\n", end_of_body_label));
 
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 // if condition is false, jump to end
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -529,10 +515,7 @@ impl Codegen {
                 result.push_str(&self.generate_compound_statement(node, codegen_context)?);
             }
             _ => {
-                result.push_str(&self.generate_expression(
-                    node,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(node, codegen_context)?);
             }
         }
         Ok(result)
@@ -541,7 +524,7 @@ impl Codegen {
     fn generate_expression(
         &mut self,
         node: &AstNode,
-        codegen_context: &CodegenContext
+        codegen_context: &CodegenContext,
     ) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
@@ -562,10 +545,7 @@ impl Codegen {
                 result.push_str(&self.generate_variable_read(*stack_offset));
             }
             AstNode::UnaryOp { operator, factor } => {
-                let nested_expression = self.generate_expression(
-                    factor,
-                    codegen_context,
-                )?;
+                let nested_expression = self.generate_expression(factor, codegen_context)?;
                 result.push_str(&nested_expression);
                 // assume previous operation moves the value to w0
                 match operator {
@@ -594,14 +574,8 @@ impl Codegen {
                 expression: term,
                 next_expression: next_term,
             } => {
-                let nested_term_1 = self.generate_expression(
-                    term,
-                    codegen_context,
-                )?;
-                let nested_term_2 = self.generate_expression(
-                    next_term,
-                    codegen_context,
-                )?;
+                let nested_term_1 = self.generate_expression(term, codegen_context)?;
+                let nested_term_2 = self.generate_expression(next_term, codegen_context)?;
 
                 // write instructions for term 1
                 result.push_str(&nested_term_1);
@@ -700,10 +674,7 @@ impl Codegen {
                     return Err(anyhow!("Variable not declared before assignment"));
                 }
                 // generate expression
-                result.push_str(&self.generate_expression(
-                    expression,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(expression, codegen_context)?);
 
                 // move w0 to location at stack offset
                 let stack_offset = codegen_context.variable_map.get(variable).unwrap();
@@ -715,10 +686,7 @@ impl Codegen {
                 else_expression,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -727,17 +695,11 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_expression
-                result.push_str(&self.generate_expression(
-                    if_expression,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(if_expression, codegen_context)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
                 // jump here to execute else_expression
                 result.push_str(&format!("{}:\n", label_1));
-                result.push_str(&self.generate_expression(
-                    else_expression,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(else_expression, codegen_context)?);
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }

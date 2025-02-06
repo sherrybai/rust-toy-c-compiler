@@ -171,18 +171,41 @@ impl AstNode {
         };
 
         // parse parameters
-        let mut next_token: Option<&&TokenType> = token_iter.peek();
         let mut parameters: Vec<String> = Vec::new();
-        while let Some(TokenType::Identifier(param)) = next_token {
-            // advance the iterator
-            Self::get_next_token_from_iter(token_iter)?;
-            parameters.push(param.clone());
-            next_token = token_iter.peek();
+        loop {
+            let next_token = Self::get_next_token_from_iter(token_iter)?;
+            if let TokenType::ClosedParens = next_token {
+                break;
+            }
+            
+            // int
+            let TokenType::Keyword(s) = next_token else {
+                return Err(anyhow!("Missing type int before parameter name"));
+            };
+            if s != "int" {
+                return Err(anyhow!("Missing type int before parameter name"));
+            }
+            // param name
+            let TokenType::Identifier(s) = Self::get_next_token_from_iter(token_iter)? else {
+                return Err(anyhow!("Missing parameter name"));
+            };
+            parameters.push(s.to_string());     
+            // comma
+            if let Some(t) = token_iter.peek() {
+                match t {
+                    TokenType::ClosedParens => {
+                        // do nothing: next iteration will break
+                    }
+                    TokenType::Comma => {
+                        // advance past comma
+                        Self::get_next_token_from_iter(token_iter)?;
+                    }
+                    _ => {
+                        return Err(anyhow!("Missing comma after parameter name"));
+                    }
+                }
+            }
         }
-
-        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
-            return Err(anyhow!("No closed parens"));
-        };
 
         if let Some(next_token) = token_iter.peek() {
             match next_token {
@@ -764,12 +787,12 @@ impl AstNode {
                             let exp = Self::parse_expression(token_iter)?;
                             parameters.push(exp);
                         }
-                        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)?
-                        else {
-                            // this should not happen: loop breaks once closed parens is found
-                            return Err(anyhow!("Function call missing closed parens"));
-                        };
                     }
+                    let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)?
+                    else {
+                        // this should not happen: loop breaks once closed parens is found
+                        return Err(anyhow!("Function call missing closed parens"));
+                    };
                     Ok(Self::FunctionCall {
                         function_name: identifier.clone(),
                         parameters,
@@ -1351,8 +1374,13 @@ mod tests {
             TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
             TokenType::OpenParens,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param1".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param2".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::OpenBrace,

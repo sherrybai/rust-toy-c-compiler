@@ -14,6 +14,7 @@ struct CodegenContext<'a> {
     current_scope: &'a mut HashSet<String>,
     break_location_label: Option<&'a String>,
     continue_location_label: Option<&'a String>,
+    function_name: &'a String,
 }
 
 pub struct Codegen {
@@ -38,6 +39,9 @@ impl Codegen {
 
         // traverse the AST
         for function in function_list.iter() {
+            // reset stack offset bytes
+            self.stack_offset_bytes = 0;
+            // generate the function
             let generated_func = self.generate_function(function)?;
             result.push_str(&generated_func);
         }
@@ -147,7 +151,6 @@ impl Codegen {
                 "Called generate_function on node that is not a function"
             ));
         };
-
         let mut result: String = String::new();
         if let Some(s) = compound_statement {
             // only generate assembly for function node if it is a definition
@@ -165,16 +168,17 @@ impl Codegen {
             let mut current_scope: HashSet<String> = HashSet::new();
 
             for (i, param) in parameters.iter().enumerate() {
-                if i < 8 {  // read from register
+                if i < 8 {
+                    // read from register
                     // push the value from register to the stack
                     let register: &str = &format!("w{}", i);
                     result.push_str(&self.generate_push_instruction(register));
                     // add to variable map
-                    variable_map.insert(param.clone(), self.stack_offset_bytes);                
+                    variable_map.insert(param.clone(), self.stack_offset_bytes);
                 } else {
                     // stored in stack
                     // add to variable map
-                    let stack_offset_bytes: i32 = -4 * (i32::try_from(i)? - 8);  // 9th param at offset 0, 10th param at offset -4, ...
+                    let stack_offset_bytes: i32 = -4 * (i32::try_from(i)? - 8); // 9th param at offset 0, 10th param at offset -4, ...
                     variable_map.insert(param.clone(), stack_offset_bytes);
                 }
                 current_scope.insert(param.clone());
@@ -186,6 +190,7 @@ impl Codegen {
                 current_scope: &mut current_scope,
                 break_location_label: None,
                 continue_location_label: None,
+                function_name: function_name,
             };
             let generated_statement = self.generate_compound_statement(s, &codegen_context)?;
             result.push_str(&generated_statement);
@@ -195,7 +200,7 @@ impl Codegen {
             result.push_str(&Self::format_instruction("mov", vec!["w0", "#0"]));
 
             // write label for jumping to early return
-            result.push_str(&format!("{}:\n", ".Lreturn"));
+            result.push_str(&format!("{}_{}:\n", ".Lreturn", function_name));
             result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
@@ -224,6 +229,7 @@ impl Codegen {
                         current_scope: &mut new_current_scope,
                         break_location_label: codegen_context.break_location_label,
                         continue_location_label: codegen_context.continue_location_label,
+                        function_name: codegen_context.function_name,
                     },
                 )?);
             }
@@ -325,7 +331,10 @@ impl Codegen {
                     ));
                 }
                 // jump to return label
-                result.push_str(&Self::format_instruction("b", vec![".Lreturn"]));
+                result.push_str(&Self::format_instruction(
+                    "b",
+                    vec![&format!(".Lreturn_{}", codegen_context.function_name)],
+                ));
             }
             AstNode::If {
                 condition,
@@ -380,6 +389,7 @@ impl Codegen {
                                 current_scope: &mut new_current_scope,
                                 break_location_label: codegen_context.break_location_label,
                                 continue_location_label: codegen_context.continue_location_label,
+                                function_name: codegen_context.function_name,
                             },
                         )?);
                     }
@@ -392,6 +402,7 @@ impl Codegen {
                                 current_scope: codegen_context.current_scope,
                                 break_location_label: codegen_context.break_location_label,
                                 continue_location_label: codegen_context.continue_location_label,
+                                function_name: codegen_context.function_name,
                             },
                         )?);
                     }
@@ -421,6 +432,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: codegen_context.break_location_label,
                         continue_location_label: codegen_context.continue_location_label,
+                        function_name: codegen_context.function_name,
                     },
                 )?);
 
@@ -436,6 +448,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: Some(end_of_loop_label),
                         continue_location_label: Some(end_of_body_label),
+                        function_name: codegen_context.function_name,
                     },
                 )?);
 
@@ -450,6 +463,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: codegen_context.break_location_label,
                         continue_location_label: codegen_context.continue_location_label,
+                        function_name: codegen_context.function_name,
                     },
                 )?);
 
@@ -489,6 +503,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: Some(end_of_loop_label),
                         continue_location_label: Some(end_of_body_label),
+                        function_name: codegen_context.function_name,
                     },
                 )?);
                 // mark end of body
@@ -515,6 +530,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: Some(end_of_loop_label),
                         continue_location_label: Some(end_of_body_label),
+                        function_name: codegen_context.function_name,
                     },
                 )?);
                 // mark end of body
@@ -740,12 +756,17 @@ impl Codegen {
             }
             AstNode::FunctionCall {
                 function_name,
-                parameters
+                parameters,
             } => {
                 // first 8 registers are saved in registers
                 let mut register_saved_params: Vec<AstNode> = parameters.clone();
                 // truncates register_saved_params to 8 values
-                let stack_saved_params = register_saved_params.split_off(8);
+                let stack_saved_params: Vec<AstNode>;
+                if register_saved_params.len() > 8 {
+                    stack_saved_params = register_saved_params.split_off(8);
+                } else {
+                    stack_saved_params = vec![];
+                }
 
                 // push any stack-saved parameters to the stack
                 for p in stack_saved_params.iter().rev() {
@@ -762,11 +783,11 @@ impl Codegen {
                 // save old stack offset and reset to 0 for function call
                 let old_stack_offset = self.stack_offset_bytes;
                 self.stack_offset_bytes = 0;
-                
+
                 // write the function call
-                let param_iter = std::iter::repeat_n("int", parameters.len());
-                let param_str: String = itertools::intersperse(param_iter, ",").collect();
-                let function_call_str = format!("{}({})", function_name, param_str);
+                // let param_iter = std::iter::repeat_n("int", parameters.len());
+                // let param_str: String = itertools::intersperse(param_iter, ",").collect();
+                let function_call_str = format!("_{}", function_name);
                 result.push_str(&Self::format_instruction("bl", vec![&function_call_str]));
 
                 // restore old stack offset
@@ -831,7 +852,9 @@ mod tests {
 
     #[test]
     fn test_function_with_parameters() {
-        let expression = Box::new(AstNode::Variable { variable: "i".into() });
+        let expression = Box::new(AstNode::Variable {
+            variable: "i".into(),
+        });
         let statement = AstNode::Return { expression };
         let function = AstNode::Function {
             function_name: "foo".into(),
@@ -883,8 +906,8 @@ mod tests {
 
     #[test]
     fn test_function_call_with_parameters() {
-        let expression = Box::new(AstNode::FunctionCall { 
-            function_name: "foo".into(), 
+        let expression = Box::new(AstNode::FunctionCall {
+            function_name: "foo".into(),
             parameters: vec![
                 AstNode::Constant { constant: 1 },
                 AstNode::Constant { constant: 2 },
@@ -895,7 +918,7 @@ mod tests {
                 AstNode::Constant { constant: 7 },
                 AstNode::Constant { constant: 8 },
                 AstNode::Constant { constant: 9 },
-            ]
+            ],
         });
         let statement = AstNode::Return { expression };
         let function = AstNode::Function {
@@ -1545,6 +1568,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_expression(&ternary_expression, &codegen_context)
@@ -1581,6 +1605,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&if_statement, &mut codegen_context)
@@ -1619,6 +1644,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&if_statement, &mut codegen_context)
@@ -1673,6 +1699,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&for_loop, &mut codegen_context)
@@ -1729,6 +1756,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&while_loop, &mut codegen_context)
@@ -1775,6 +1803,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&do_loop, &mut codegen_context)

@@ -18,7 +18,7 @@ impl Validation {
     }
 
     pub fn validate_ast(&mut self, ast: &AstNode) -> anyhow::Result<()> {
-        let AstNode::Program { function_list } = ast else {
+        let AstNode::Program { function_or_declaration_list: function_list } = ast else {
             return Err(anyhow!("Called validate_ast on node that is not a program"));
         };
 
@@ -234,7 +234,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut validation = Validation::new();
@@ -263,7 +263,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function_1, function_2],
+            function_or_declaration_list: vec![function_1, function_2],
         };
 
         let mut validation = Validation::new();
@@ -286,7 +286,7 @@ mod tests {
             body: None,
         };
         let program = AstNode::Program {
-            function_list: vec![declaration_1, declaration_2],
+            function_or_declaration_list: vec![declaration_1, declaration_2],
         };
 
         let mut validation = Validation::new();
@@ -314,7 +314,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![declaration, definition],
+            function_or_declaration_list: vec![declaration, definition],
         };
 
         let mut validation = Validation::new();
@@ -346,7 +346,7 @@ mod tests {
         };
         // helper function declared after main
         let program = AstNode::Program {
-            function_list: vec![function_2, function_1],
+            function_or_declaration_list: vec![function_2, function_1],
         };
 
         let mut validation = Validation::new();
@@ -375,7 +375,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function_1, function_2],
+            function_or_declaration_list: vec![function_1, function_2],
         };
 
         let mut validation = Validation::new();

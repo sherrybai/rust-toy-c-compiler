@@ -32,7 +32,7 @@ impl Codegen {
     }
 
     pub fn codegen(&mut self, ast: AstNode) -> anyhow::Result<String> {
-        let AstNode::Program { function_list } = ast else {
+        let AstNode::Program { function_or_declaration_list: function_list } = ast else {
             return Err(anyhow!("Called codegen on node that is not a program"));
         };
 
@@ -817,7 +817,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
@@ -979,7 +979,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
@@ -1007,7 +1007,7 @@ mod tests {
             body: None,
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
@@ -1032,7 +1032,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
@@ -1117,7 +1117,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1163,7 +1163,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1214,7 +1214,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1258,7 +1258,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1291,7 +1291,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1379,7 +1379,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1480,7 +1480,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1547,7 +1547,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();

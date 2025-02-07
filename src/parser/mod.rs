@@ -57,7 +57,7 @@ impl Operator {
 #[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Program {
-        function_list: Vec<Self>,
+        function_or_declaration_list: Vec<Self>,
     },
     Function {
         function_name: String,
@@ -133,15 +133,30 @@ impl AstNode {
     pub fn parse(tokens: &[TokenType]) -> anyhow::Result<Self> {
         // <program> ::= { <function> }
         let mut token_iter = peek_nth(tokens.iter());
-        let mut function_list: Vec<Self> = Vec::new();
+        let mut function_or_declaration_list: Vec<Self> = Vec::new();
         loop {
-            let next_token: Option<&&TokenType> = token_iter.peek();
-            match next_token {
-                Some(_) => {
+            if token_iter.peek() == None {
+                return Ok(Self::Program { function_or_declaration_list });
+            }
+            let Some(TokenType::Keyword(s)) = token_iter.peek() else {
+                return Err(anyhow!("First keyword of function is not 'int'"));
+            };
+            if s != "int" {
+                return Err(anyhow!("First keyword of function is not 'int'"));
+            }
+            let Some(TokenType::Identifier(_)) = token_iter.peek_nth(1) else {
+                return Err(anyhow!("Function or declaration does not have identifier"));
+            };
+            match token_iter.peek_nth(2) {
+                Some(TokenType::OpenParens) => {
                     let function: Self = Self::parse_function(&mut token_iter)?;
-                    function_list.push(function);
+                    function_or_declaration_list.push(function);
                 }
-                None => return Ok(Self::Program { function_list }),
+                Some(_) => {
+                    let declaration: Self = Self::parse_declaration(&mut token_iter)?;
+                    function_or_declaration_list.push(declaration);              
+                }
+                None => { return Err(anyhow!("Function or declaration cannot be parsed")) }
             }
         }
     }
@@ -149,7 +164,6 @@ impl AstNode {
     fn parse_function(token_iter: &mut PeekNth<Iter<TokenType>>) -> anyhow::Result<Self> {
         // <function> ::= "int" <id> "(" [ "int" <id> { "," "int" <id> } ] ")" ( "{" { <block-item> } "}" | ";" )
 
-        // parse keyword token
         if let TokenType::Keyword(s) = Self::get_next_token_from_iter(token_iter)? {
             if s != "int" {
                 return Err(anyhow!("First keyword of function is not 'int'"));
@@ -1412,8 +1426,13 @@ mod tests {
             TokenType::Keyword("int".into()),
             TokenType::Identifier("helper".into()),
             TokenType::OpenParens,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param1".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param2".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::Semicolon,
@@ -1433,11 +1452,53 @@ mod tests {
         assert_eq!(
             program.unwrap(),
             AstNode::Program {
-                function_list: vec![
+                function_or_declaration_list: vec![
                     AstNode::Function {
                         function_name: "helper".into(),
                         parameters: vec!["param1".into(), "param2".into(), "param3".into(),],
                         body: None,
+                    },
+                    AstNode::Function {
+                        function_name: "main".into(),
+                        parameters: vec![],
+                        body: Some(Box::new(AstNode::Compound {
+                            block_item_list: vec![AstNode::Return {
+                                expression: Box::new(AstNode::Constant { constant: 2 }),
+                            }]
+                        }))
+                    },
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_program_multiple_statements() {
+        let token_vec = vec![
+            // first function declaration
+            TokenType::Keyword("int".into()),
+            TokenType::Identifier("helper".into()),
+            TokenType::Semicolon,
+            // main function definition
+            TokenType::Keyword("int".into()),
+            TokenType::Identifier("main".into()),
+            TokenType::OpenParens,
+            TokenType::ClosedParens,
+            TokenType::OpenBrace,
+            TokenType::Keyword("return".into()),
+            TokenType::IntLiteral(2),
+            TokenType::Semicolon,
+            TokenType::ClosedBrace,
+        ];
+
+        let program: anyhow::Result<AstNode> = AstNode::parse(&token_vec);
+        assert_eq!(
+            program.unwrap(),
+            AstNode::Program {
+                function_or_declaration_list: vec![
+                    AstNode::Declare {
+                        variable: "helper".into(),
+                        expression: None,
                     },
                     AstNode::Function {
                         function_name: "main".into(),
@@ -1459,8 +1520,13 @@ mod tests {
             TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
             TokenType::OpenParens,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param1".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param2".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::OpenBrace,

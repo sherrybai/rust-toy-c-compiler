@@ -82,7 +82,9 @@ impl TokenType {
             Self::Semicolon => r";",
             // int, return, if, else, for, while, do, break, continue
             // wrapped by \b to indicate word boundaries
-            Self::Keyword(_) => r"\bint\b|\breturn\b|\bif\b|\belse\b|\bfor\b|\bwhile\b|\bdo\b|\bbreak\b|\bcontinue\b",
+            Self::Keyword(_) => {
+                r"\bint\b|\breturn\b|\bif\b|\belse\b|\bfor\b|\bwhile\b|\bdo\b|\bbreak\b|\bcontinue\b"
+            }
             Self::Identifier(_) => r"[a-zA-Z]\w*",
             Self::IntLiteral(_) => r"[0-9]+",
             Self::Minus => r"\-",
@@ -213,9 +215,9 @@ mod tests {
             tiff
         ";
         let expected = vec![
-            TokenType::Keyword("if".into()), 
-            TokenType::Keyword("else".into()), 
-            TokenType::Colon, 
+            TokenType::Keyword("if".into()),
+            TokenType::Keyword("else".into()),
+            TokenType::Colon,
             TokenType::QuestionMark,
             TokenType::Identifier("iff".into()),
             TokenType::Identifier("tiff".into()),
@@ -234,11 +236,11 @@ mod tests {
             doobadeedoo
         ";
         let expected = vec![
-            TokenType::Keyword("for".into()), 
-            TokenType::Keyword("while".into()), 
-            TokenType::Keyword("do".into()), 
-            TokenType::Keyword("break".into()), 
-            TokenType::Keyword("continue".into()), 
+            TokenType::Keyword("for".into()),
+            TokenType::Keyword("while".into()),
+            TokenType::Keyword("do".into()),
+            TokenType::Keyword("break".into()),
+            TokenType::Keyword("continue".into()),
             TokenType::Identifier("doobadeedoo".into()),
         ];
         assert_eq!(TokenType::lex(contents).unwrap(), expected);

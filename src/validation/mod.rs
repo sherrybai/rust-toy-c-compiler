@@ -100,9 +100,17 @@ impl Validation {
                     self.validate_block_item(statement)?;
                 }
             }
-            AstNode::For { initial_decl_or_exp, condition, post_condition, body } => {
+            AstNode::For {
+                initial_decl_or_exp,
+                condition,
+                post_condition,
+                body,
+            } => {
                 match **initial_decl_or_exp {
-                    AstNode::Declare { variable: _, ref expression } => {
+                    AstNode::Declare {
+                        variable: _,
+                        ref expression,
+                    } => {
                         if let Some(exp) = expression {
                             self.validate_expression(exp)?;
                         }
@@ -115,10 +123,9 @@ impl Validation {
                 self.validate_expression(post_condition)?;
                 self.validate_block_item(body)?;
             }
-            AstNode::While { condition, body} => {
+            AstNode::While { condition, body } => {
                 self.validate_block_item(body)?;
                 self.validate_expression(condition)?;
-
             }
             AstNode::Do { body, condition } => {
                 self.validate_expression(condition)?;

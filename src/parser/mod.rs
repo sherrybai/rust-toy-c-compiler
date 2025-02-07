@@ -6,7 +6,7 @@ use anyhow::Context;
 use itertools::peek_nth;
 use itertools::PeekNth;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
     Negation,
     BitwiseComplement,
@@ -54,7 +54,7 @@ impl Operator {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum AstNode {
     Program {
         function_list: Vec<Self>,
@@ -171,18 +171,41 @@ impl AstNode {
         };
 
         // parse parameters
-        let mut next_token: Option<&&TokenType> = token_iter.peek();
         let mut parameters: Vec<String> = Vec::new();
-        while let Some(TokenType::Identifier(param)) = next_token {
-            // advance the iterator
-            Self::get_next_token_from_iter(token_iter)?;
-            parameters.push(param.clone());
-            next_token = token_iter.peek();
+        loop {
+            let next_token = Self::get_next_token_from_iter(token_iter)?;
+            if let TokenType::ClosedParens = next_token {
+                break;
+            }
+            
+            // int
+            let TokenType::Keyword(s) = next_token else {
+                return Err(anyhow!("Missing type int before parameter name"));
+            };
+            if s != "int" {
+                return Err(anyhow!("Missing type int before parameter name"));
+            }
+            // param name
+            let TokenType::Identifier(s) = Self::get_next_token_from_iter(token_iter)? else {
+                return Err(anyhow!("Missing parameter name"));
+            };
+            parameters.push(s.to_string());     
+            // comma
+            if let Some(t) = token_iter.peek() {
+                match t {
+                    TokenType::ClosedParens => {
+                        // do nothing: next iteration will break
+                    }
+                    TokenType::Comma => {
+                        // advance past comma
+                        Self::get_next_token_from_iter(token_iter)?;
+                    }
+                    _ => {
+                        return Err(anyhow!("Missing comma after parameter name"));
+                    }
+                }
+            }
         }
-
-        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)? else {
-            return Err(anyhow!("No closed parens"));
-        };
 
         if let Some(next_token) = token_iter.peek() {
             match next_token {
@@ -205,11 +228,9 @@ impl AstNode {
                         body: Some(Box::new(statement)),
                     })
                 }
-                _ => {
-                    Err(anyhow!(
-                        "No semicolon or open brace following function parameters"
-                    ))
-                }
+                _ => Err(anyhow!(
+                    "No semicolon or open brace following function parameters"
+                )),
             }
         } else {
             Err(anyhow!("Missing token after function parameters"))
@@ -766,12 +787,12 @@ impl AstNode {
                             let exp = Self::parse_expression(token_iter)?;
                             parameters.push(exp);
                         }
-                        let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)?
-                        else {
-                            // this should not happen: loop breaks once closed parens is found
-                            return Err(anyhow!("Function call missing closed parens"));
-                        };
                     }
+                    let TokenType::ClosedParens = Self::get_next_token_from_iter(token_iter)?
+                    else {
+                        // this should not happen: loop breaks once closed parens is found
+                        return Err(anyhow!("Function call missing closed parens"));
+                    };
                     Ok(Self::FunctionCall {
                         function_name: identifier.clone(),
                         parameters,
@@ -1312,12 +1333,9 @@ mod tests {
         assert_eq!(
             statement.unwrap(),
             AstNode::Do {
-                body: Box::new(AstNode::Compound { 
-                    block_item_list: vec![
-                        AstNode::Break,
-                        AstNode::Continue,
-                    ]
-                 }),
+                body: Box::new(AstNode::Compound {
+                    block_item_list: vec![AstNode::Break, AstNode::Continue,]
+                }),
                 condition: Box::new(AstNode::BinaryOp {
                     operator: Operator::LessThan,
                     expression: Box::new(AstNode::Variable {
@@ -1356,8 +1374,13 @@ mod tests {
             TokenType::Keyword("int".into()),
             TokenType::Identifier("main".into()),
             TokenType::OpenParens,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param1".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param2".into()),
+            TokenType::Comma,
+            TokenType::Keyword("int".into()),
             TokenType::Identifier("param3".into()),
             TokenType::ClosedParens,
             TokenType::OpenBrace,

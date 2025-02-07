@@ -1,3 +1,4 @@
+use std::cmp;
 use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
@@ -14,6 +15,7 @@ struct CodegenContext<'a> {
     current_scope: &'a mut HashSet<String>,
     break_location_label: Option<&'a String>,
     continue_location_label: Option<&'a String>,
+    function_name: &'a String,
 }
 
 pub struct Codegen {
@@ -38,6 +40,9 @@ impl Codegen {
 
         // traverse the AST
         for function in function_list.iter() {
+            // reset stack offset bytes
+            self.stack_offset_bytes = 0;
+            // generate the function
             let generated_func = self.generate_function(function)?;
             result.push_str(&generated_func);
         }
@@ -118,7 +123,7 @@ impl Codegen {
             "stp",
             vec!["x29", "x30", "[sp, -16]!"],
         ));
-        // stack pointer now points to frame pointer (top of the caller function’s stack frame)
+        // frame pointer (top of the caller function’s stack frame) now points to stack pointer
         // top of caller's stack frame is bottom of callee's stack frame
         result.push_str(&Self::format_instruction("mov", vec!["x29", "sp"]));
         result
@@ -147,7 +152,6 @@ impl Codegen {
                 "Called generate_function on node that is not a function"
             ));
         };
-
         let mut result: String = String::new();
         if let Some(s) = compound_statement {
             // only generate assembly for function node if it is a definition
@@ -160,11 +164,34 @@ impl Codegen {
             // set up stack frame
             result.push_str(&Self::generate_function_prologue());
 
+            // add function parameters to variable map
+            let mut variable_map: HashMap<String, i32> = HashMap::new();
+            let mut current_scope: HashSet<String> = HashSet::new();
+
+            for (i, param) in parameters.iter().enumerate() {
+                if i < 8 {
+                    // read from register
+                    // push the value from register to the stack
+                    let register: &str = &format!("w{}", i);
+                    result.push_str(&self.generate_push_instruction(register));
+                    // add to variable map
+                    variable_map.insert(param.clone(), self.stack_offset_bytes);
+                } else {
+                    // stored in stack
+                    // add to variable map
+                    let stack_offset_bytes: i32 = -4 * (i32::try_from(i)? - 8); // 9th param at offset 0, 10th param at offset -4, ...
+                    variable_map.insert(param.clone(), stack_offset_bytes);
+                }
+                current_scope.insert(param.clone());
+            }
+
+            // generate function body
             let codegen_context = CodegenContext {
-                variable_map: &mut HashMap::new(),
-                current_scope: &mut HashSet::new(),
+                variable_map: &mut variable_map,
+                current_scope: &mut current_scope,
                 break_location_label: None,
                 continue_location_label: None,
+                function_name,
             };
             let generated_statement = self.generate_compound_statement(s, &codegen_context)?;
             result.push_str(&generated_statement);
@@ -174,7 +201,7 @@ impl Codegen {
             result.push_str(&Self::format_instruction("mov", vec!["w0", "#0"]));
 
             // write label for jumping to early return
-            result.push_str(&format!("{}:\n", ".Lreturn"));
+            result.push_str(&format!("{}_{}:\n", ".Lreturn", function_name));
             result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
@@ -203,6 +230,7 @@ impl Codegen {
                         current_scope: &mut new_current_scope,
                         break_location_label: codegen_context.break_location_label,
                         continue_location_label: codegen_context.continue_location_label,
+                        function_name: codegen_context.function_name,
                     },
                 )?);
             }
@@ -304,7 +332,10 @@ impl Codegen {
                     ));
                 }
                 // jump to return label
-                result.push_str(&Self::format_instruction("b", vec![".Lreturn"]));
+                result.push_str(&Self::format_instruction(
+                    "b",
+                    vec![&format!(".Lreturn_{}", codegen_context.function_name)],
+                ));
             }
             AstNode::If {
                 condition,
@@ -312,10 +343,7 @@ impl Codegen {
                 else_statement,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -324,19 +352,13 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_statement
-                result.push_str(&self.generate_statement(
-                    if_statement,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_statement(if_statement, codegen_context)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
 
                 // jump here to execute else_expression (if not optional)
                 result.push_str(&format!("{}:\n", label_1));
                 if let Some(node) = else_statement {
-                    result.push_str(&self.generate_statement(
-                        node,
-                        codegen_context,
-                    )?);
+                    result.push_str(&self.generate_statement(node, codegen_context)?);
                 }
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
@@ -349,7 +371,8 @@ impl Codegen {
             } => {
                 // for loop is its own scope
                 // new variable map, cloning from outer scope
-                let mut new_variable_map: HashMap<String, i32> = codegen_context.variable_map.clone();
+                let mut new_variable_map: HashMap<String, i32> =
+                    codegen_context.variable_map.clone();
                 // track variables in the current scope
                 let mut new_current_scope: HashSet<String> = HashSet::new();
 
@@ -367,6 +390,7 @@ impl Codegen {
                                 current_scope: &mut new_current_scope,
                                 break_location_label: codegen_context.break_location_label,
                                 continue_location_label: codegen_context.continue_location_label,
+                                function_name: codegen_context.function_name,
                             },
                         )?);
                     }
@@ -379,6 +403,7 @@ impl Codegen {
                                 current_scope: codegen_context.current_scope,
                                 break_location_label: codegen_context.break_location_label,
                                 continue_location_label: codegen_context.continue_location_label,
+                                function_name: codegen_context.function_name,
                             },
                         )?);
                     }
@@ -391,7 +416,8 @@ impl Codegen {
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
                 // evaluate condition
-                #[allow(clippy::borrowed_box)] let actual_condition: &Box<AstNode>; 
+                #[allow(clippy::borrowed_box)]
+                let actual_condition: &Box<AstNode>;
                 let fake_true_condition = Box::new(AstNode::Constant { constant: 1 });
                 if let AstNode::NullExpression = **condition {
                     // replace with non-zero constant
@@ -407,6 +433,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: codegen_context.break_location_label,
                         continue_location_label: codegen_context.continue_location_label,
+                        function_name: codegen_context.function_name,
                     },
                 )?);
 
@@ -422,6 +449,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: Some(end_of_loop_label),
                         continue_location_label: Some(end_of_body_label),
+                        function_name: codegen_context.function_name,
                     },
                 )?);
 
@@ -436,6 +464,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: codegen_context.break_location_label,
                         continue_location_label: codegen_context.continue_location_label,
+                        function_name: codegen_context.function_name,
                     },
                 )?);
 
@@ -446,13 +475,12 @@ impl Codegen {
 
                 // deallocate variables from the current scope
                 for _ in new_current_scope {
-                self.stack_offset_bytes += 4;
-                // free space if needed
-                if self.stack_offset_bytes % 16 == 0 {
-                    result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
-                };
-            }
-
+                    self.stack_offset_bytes += 4;
+                    // free space if needed
+                    if self.stack_offset_bytes % 16 == 0 {
+                        result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
+                    };
+                }
             }
             AstNode::While { condition, body } => {
                 let condition_label = &format!(".L{:?}", self.label_counter);
@@ -462,10 +490,7 @@ impl Codegen {
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 // if condition is false, jump to end
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -479,6 +504,7 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: Some(end_of_loop_label),
                         continue_location_label: Some(end_of_body_label),
+                        function_name: codegen_context.function_name,
                     },
                 )?);
                 // mark end of body
@@ -505,16 +531,14 @@ impl Codegen {
                         current_scope: codegen_context.current_scope,
                         break_location_label: Some(end_of_loop_label),
                         continue_location_label: Some(end_of_body_label),
+                        function_name: codegen_context.function_name,
                     },
                 )?);
                 // mark end of body
                 result.push_str(&format!("{}:\n", end_of_body_label));
 
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 // if condition is false, jump to end
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -529,10 +553,7 @@ impl Codegen {
                 result.push_str(&self.generate_compound_statement(node, codegen_context)?);
             }
             _ => {
-                result.push_str(&self.generate_expression(
-                    node,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(node, codegen_context)?);
             }
         }
         Ok(result)
@@ -541,7 +562,7 @@ impl Codegen {
     fn generate_expression(
         &mut self,
         node: &AstNode,
-        codegen_context: &CodegenContext
+        codegen_context: &CodegenContext,
     ) -> anyhow::Result<String> {
         let mut result: String = String::new();
 
@@ -562,10 +583,7 @@ impl Codegen {
                 result.push_str(&self.generate_variable_read(*stack_offset));
             }
             AstNode::UnaryOp { operator, factor } => {
-                let nested_expression = self.generate_expression(
-                    factor,
-                    codegen_context,
-                )?;
+                let nested_expression = self.generate_expression(factor, codegen_context)?;
                 result.push_str(&nested_expression);
                 // assume previous operation moves the value to w0
                 match operator {
@@ -594,21 +612,14 @@ impl Codegen {
                 expression: term,
                 next_expression: next_term,
             } => {
-                let nested_term_1 = self.generate_expression(
-                    term,
-                    codegen_context,
-                )?;
-                let nested_term_2 = self.generate_expression(
-                    next_term,
-                    codegen_context,
-                )?;
-
+                let nested_term_1 = self.generate_expression(term, codegen_context)?;
                 // write instructions for term 1
                 result.push_str(&nested_term_1);
                 // push w0 to stack
                 result.push_str(&self.generate_push_instruction("w0"));
 
                 // write code for term 2
+                let nested_term_2 = self.generate_expression(next_term, codegen_context)?;
                 result.push_str(&nested_term_2);
                 // pop term 1 from stack into w1
                 result.push_str(&self.generate_pop_instruction("w1"));
@@ -700,10 +711,7 @@ impl Codegen {
                     return Err(anyhow!("Variable not declared before assignment"));
                 }
                 // generate expression
-                result.push_str(&self.generate_expression(
-                    expression,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(expression, codegen_context)?);
 
                 // move w0 to location at stack offset
                 let stack_offset = codegen_context.variable_map.get(variable).unwrap();
@@ -715,10 +723,7 @@ impl Codegen {
                 else_expression,
             } => {
                 // evaluate condition
-                result.push_str(&self.generate_expression(
-                    condition,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(condition, codegen_context)?);
 
                 let label_1 = &format!(".L{:?}", self.label_counter);
                 let label_2 = &format!(".L{:?}", self.label_counter + 1);
@@ -727,17 +732,11 @@ impl Codegen {
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
                 result.push_str(&Self::format_instruction("beq", vec![label_1]));
                 // otherwise, execute if_expression
-                result.push_str(&self.generate_expression(
-                    if_expression,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(if_expression, codegen_context)?);
                 result.push_str(&Self::format_instruction("b", vec![label_2]));
                 // jump here to execute else_expression
                 result.push_str(&format!("{}:\n", label_1));
-                result.push_str(&self.generate_expression(
-                    else_expression,
-                    codegen_context,
-                )?);
+                result.push_str(&self.generate_expression(else_expression, codegen_context)?);
                 // mark end of this block
                 result.push_str(&format!("{}:\n", label_2));
             }
@@ -753,6 +752,43 @@ impl Codegen {
                     result.push_str(&Self::format_instruction("b", vec![jump_label]));
                 } else {
                     return Err(anyhow!("Continue found outside of loop"));
+                }
+            }
+            AstNode::FunctionCall {
+                function_name,
+                parameters,
+            } => {
+                // push all parameters to the stack
+                for p in parameters.iter().rev() {
+                    result.push_str(&self.generate_expression(p, codegen_context)?);
+                    result.push_str(&self.generate_push_instruction("w0"));
+                }
+                // save register-saved params to registers (remaining values stay on the stack)
+                let num_register_saved_params = cmp::min(parameters.len(), 8);
+                for i in 0..num_register_saved_params {
+                    let register: &str = &format!("w{}", i);
+                    // LIFO order -> values come out in ascending order from 1st to 8th param
+                    result.push_str(&self.generate_pop_instruction(register));
+                }
+                // save old stack offset and reset to 0 for function call
+                let old_stack_offset = self.stack_offset_bytes;
+                self.stack_offset_bytes = 0;
+
+                // write the function call
+                let function_call_str = format!("_{}", function_name);
+                result.push_str(&Self::format_instruction("bl", vec![&function_call_str]));
+
+                // restore old stack offset
+                self.stack_offset_bytes = old_stack_offset;
+
+                // deallocate off any remaining stack-saved parameters
+                let num_stack_saved_params = parameters.len() - num_register_saved_params;
+                for _ in 0..num_stack_saved_params {
+                    self.stack_offset_bytes += 4;
+                    // free space if needed
+                    if self.stack_offset_bytes % 16 == 0 {
+                        result.push_str(&Self::format_instruction("add", vec!["sp", "sp", "16"]));
+                    };
                 }
             }
             _ => {
@@ -794,11 +830,141 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_function_with_parameters() {
+        let expression = Box::new(AstNode::Variable {
+            variable: "i".into(),
+        });
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
+            function_name: "foo".into(),
+            parameters: vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                "e".into(),
+                "f".into(),
+                "g".into(),
+                "h".into(),
+                "i".into(),
+            ],
+            body: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
+        };
+
+        let mut codegen = Codegen::new();
+        let result = codegen.generate_function(&function).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .globl _foo
+            _foo:
+                stp	x29, x30, [sp, -16]!
+                mov	x29, sp
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
+                str	w1, [sp, 8]
+                str	w2, [sp, 4]
+                str	w3, [sp, 0]
+                sub	sp, sp, #16
+                str	w4, [sp, 12]
+                str	w5, [sp, 8]
+                str	w6, [sp, 4]
+                str	w7, [sp, 0]
+                ldr	w0, [sp, 32]
+                add	sp, sp, 32
+                b	.Lreturn_foo
+                mov	w0, #0
+            .Lreturn_foo:
+                ldp	x29, x30, [sp], 16
+                ret
+            "
+        )
+    }
+
+    #[test]
+    fn test_function_call_with_parameters() {
+        let expression = Box::new(AstNode::FunctionCall {
+            function_name: "foo".into(),
+            parameters: vec![
+                AstNode::Constant { constant: 1 },
+                AstNode::Constant { constant: 2 },
+                AstNode::Constant { constant: 3 },
+                AstNode::Constant { constant: 4 },
+                AstNode::Constant { constant: 5 },
+                AstNode::Constant { constant: 6 },
+                AstNode::Constant { constant: 7 },
+                AstNode::Constant { constant: 8 },
+                AstNode::Constant { constant: 9 },
+            ],
+        });
+        let statement = AstNode::Return { expression };
+        let function = AstNode::Function {
+            function_name: "main".into(),
+            parameters: vec![],
+            body: Some(Box::new(AstNode::Compound {
+                block_item_list: vec![statement],
+            })),
+        };
+
+        let mut codegen = Codegen::new();
+        let result = codegen.generate_function(&function).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                .globl _main
+            _main:
+                stp	x29, x30, [sp, -16]!
+                mov	x29, sp
+                mov	w0, #9
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
+                mov	w0, #8
+                str	w0, [sp, 8]
+                mov	w0, #7
+                str	w0, [sp, 4]
+                mov	w0, #6
+                str	w0, [sp, 0]
+                mov	w0, #5
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
+                mov	w0, #4
+                str	w0, [sp, 8]
+                mov	w0, #3
+                str	w0, [sp, 4]
+                mov	w0, #2
+                str	w0, [sp, 0]
+                mov	w0, #1
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
+                ldr	w0, [sp, 12]
+                add	sp, sp, 16
+                ldr	w1, [sp, 0]
+                ldr	w2, [sp, 4]
+                ldr	w3, [sp, 8]
+                ldr	w4, [sp, 12]
+                add	sp, sp, 16
+                ldr	w5, [sp, 0]
+                ldr	w6, [sp, 4]
+                ldr	w7, [sp, 8]
+                bl	_foo
+                add	sp, sp, 16
+                b	.Lreturn_main
+                mov	w0, #0
+            .Lreturn_main:
+                ldp	x29, x30, [sp], 16
+                ret
             "
         )
     }
@@ -826,7 +992,7 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -880,9 +1046,9 @@ mod tests {
                     mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -970,9 +1136,9 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1024,9 +1190,9 @@ mod tests {
                 .L1:
                     mov	w0, 0
                 .L2:
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1065,7 +1231,7 @@ mod tests {
                     str	w0, [sp, 12]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1144,7 +1310,7 @@ mod tests {
                     str	w0, [sp, 8]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1250,7 +1416,7 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1346,7 +1512,7 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:                    
+                .Lreturn_main:                    
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1403,6 +1569,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_expression(&ternary_expression, &codegen_context)
@@ -1439,6 +1606,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&if_statement, &mut codegen_context)
@@ -1450,7 +1618,7 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
-                    b	.Lreturn
+                    b	.Lreturn_main
                     b	.L2
                 .L1:
                 .L2:
@@ -1477,6 +1645,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&if_statement, &mut codegen_context)
@@ -1488,11 +1657,11 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
-                    b	.Lreturn
+                    b	.Lreturn_main
                     b	.L2
                 .L1:
                     mov	w0, #3
-                    b	.Lreturn
+                    b	.Lreturn_main
                 .L2:
             "
         )
@@ -1531,6 +1700,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&for_loop, &mut codegen_context)
@@ -1587,6 +1757,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&while_loop, &mut codegen_context)
@@ -1633,6 +1804,7 @@ mod tests {
             current_scope: &mut HashSet::new(),
             break_location_label: None,
             continue_location_label: None,
+            function_name: &"main".into(),
         };
         let result = codegen
             .generate_statement(&do_loop, &mut codegen_context)

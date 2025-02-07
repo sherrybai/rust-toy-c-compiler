@@ -1,3 +1,5 @@
+use core::num;
+use std::cmp;
 use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
@@ -612,14 +614,13 @@ impl Codegen {
                 next_expression: next_term,
             } => {
                 let nested_term_1 = self.generate_expression(term, codegen_context)?;
-                let nested_term_2 = self.generate_expression(next_term, codegen_context)?;
-
                 // write instructions for term 1
                 result.push_str(&nested_term_1);
                 // push w0 to stack
                 result.push_str(&self.generate_push_instruction("w0"));
 
                 // write code for term 2
+                let nested_term_2 = self.generate_expression(next_term, codegen_context)?;
                 result.push_str(&nested_term_2);
                 // pop term 1 from stack into w1
                 result.push_str(&self.generate_pop_instruction("w1"));
@@ -758,35 +759,23 @@ impl Codegen {
                 function_name,
                 parameters,
             } => {
-                // first 8 registers are saved in registers
-                let mut register_saved_params: Vec<AstNode> = parameters.clone();
-                // truncates register_saved_params to 8 values
-                let stack_saved_params: Vec<AstNode>;
-                if register_saved_params.len() > 8 {
-                    stack_saved_params = register_saved_params.split_off(8);
-                } else {
-                    stack_saved_params = vec![];
-                }
-
-                // push any stack-saved parameters to the stack
-                for p in stack_saved_params.iter().rev() {
+                // push all parameters to the stack
+                for p in parameters.iter().rev() {
                     result.push_str(&self.generate_expression(p, codegen_context)?);
                     result.push_str(&self.generate_push_instruction("w0"));
                 }
-                // save register-saved params to registers
-                // do this in reverse so that w0 can be mutated -> save first parameter in w0 at the end
-                for (i, p) in register_saved_params.iter().enumerate().rev() {
+                // save register-saved params to registers (remaining values stay on the stack)
+                let num_register_saved_params = cmp::min(parameters.len(), 8);
+                for i in 0..num_register_saved_params {
                     let register: &str = &format!("w{}", i);
-                    result.push_str(&self.generate_expression(p, codegen_context)?);
-                    result.push_str(&Self::format_instruction("mov", vec![register, "w0"]));
+                    // LIFO order -> values come out in ascending order from 1st to 8th param
+                    result.push_str(&self.generate_pop_instruction(register));
                 }
                 // save old stack offset and reset to 0 for function call
                 let old_stack_offset = self.stack_offset_bytes;
                 self.stack_offset_bytes = 0;
 
                 // write the function call
-                // let param_iter = std::iter::repeat_n("int", parameters.len());
-                // let param_str: String = itertools::intersperse(param_iter, ",").collect();
                 let function_call_str = format!("_{}", function_name);
                 result.push_str(&Self::format_instruction("bl", vec![&function_call_str]));
 
@@ -794,7 +783,8 @@ impl Codegen {
                 self.stack_offset_bytes = old_stack_offset;
 
                 // deallocate off any remaining stack-saved parameters
-                for _ in stack_saved_params {
+                let num_stack_saved_params = parameters.len() - num_register_saved_params;
+                for _ in 0..num_stack_saved_params {
                     self.stack_offset_bytes += 4;
                     // free space if needed
                     if self.stack_offset_bytes % 16 == 0 {

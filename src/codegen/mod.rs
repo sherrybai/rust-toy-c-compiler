@@ -1,4 +1,3 @@
-use core::num;
 use std::cmp;
 use std::collections::{HashMap, HashSet};
 
@@ -831,9 +830,9 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -885,9 +884,9 @@ mod tests {
                 str	w7, [sp, 0]
                 ldr	w0, [sp, 32]
                 add	sp, sp, 32
-                b	.Lreturn
+                b	.Lreturn_foo
                 mov	w0, #0
-            .Lreturn:
+            .Lreturn_foo:
                 ldp	x29, x30, [sp], 16
                 ret
             "
@@ -932,26 +931,38 @@ mod tests {
                 sub	sp, sp, #16
                 str	w0, [sp, 12]
                 mov	w0, #8
-                mov	w7, w0
+                str	w0, [sp, 8]
                 mov	w0, #7
-                mov	w6, w0
+                str	w0, [sp, 4]
                 mov	w0, #6
-                mov	w5, w0
+                str	w0, [sp, 0]
                 mov	w0, #5
-                mov	w4, w0
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
                 mov	w0, #4
-                mov	w3, w0
+                str	w0, [sp, 8]
                 mov	w0, #3
-                mov	w2, w0
+                str	w0, [sp, 4]
                 mov	w0, #2
-                mov	w1, w0
+                str	w0, [sp, 0]
                 mov	w0, #1
-                mov	w0, w0
-                bl	foo(int,int,int,int,int,int,int,int,int)
+                sub	sp, sp, #16
+                str	w0, [sp, 12]
+                ldr	w0, [sp, 12]
                 add	sp, sp, 16
-                b	.Lreturn
+                ldr	w1, [sp, 0]
+                ldr	w2, [sp, 4]
+                ldr	w3, [sp, 8]
+                ldr	w4, [sp, 12]
+                add	sp, sp, 16
+                ldr	w5, [sp, 0]
+                ldr	w6, [sp, 4]
+                ldr	w7, [sp, 8]
+                bl	_foo
+                add	sp, sp, 16
+                b	.Lreturn_main
                 mov	w0, #0
-            .Lreturn:
+            .Lreturn_main:
                 ldp	x29, x30, [sp], 16
                 ret
             "
@@ -981,7 +992,7 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1035,9 +1046,9 @@ mod tests {
                     mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1125,9 +1136,9 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1179,9 +1190,9 @@ mod tests {
                 .L1:
                     mov	w0, 0
                 .L2:
-                    b	.Lreturn
+                    b	.Lreturn_main
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1220,7 +1231,7 @@ mod tests {
                     str	w0, [sp, 12]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1299,7 +1310,7 @@ mod tests {
                     str	w0, [sp, 8]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1405,7 +1416,7 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:
+                .Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1501,7 +1512,7 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn:                    
+                .Lreturn_main:                    
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1607,7 +1618,7 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
-                    b	.Lreturn
+                    b	.Lreturn_main
                     b	.L2
                 .L1:
                 .L2:
@@ -1646,11 +1657,11 @@ mod tests {
                     cmp	w0, 0
                     beq	.L1
                     mov	w0, #2
-                    b	.Lreturn
+                    b	.Lreturn_main
                     b	.L2
                 .L1:
                     mov	w0, #3
-                    b	.Lreturn
+                    b	.Lreturn_main
                 .L2:
             "
         )

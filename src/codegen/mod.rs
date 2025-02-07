@@ -191,7 +191,7 @@ impl Codegen {
                 current_scope: &mut current_scope,
                 break_location_label: None,
                 continue_location_label: None,
-                function_name: function_name,
+                function_name,
             };
             let generated_statement = self.generate_compound_statement(s, &codegen_context)?;
             result.push_str(&generated_statement);

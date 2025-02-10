@@ -42,30 +42,27 @@ impl Codegen {
 
         // populate global variable map
         for node in function_or_declaration_list.iter() {
-            match node {
-                AstNode::Declare { variable, expression } => {
-                                        // populate the global variable map
-                    // can be declared many times, but defined only once
-                    if let Some(val) = self.global_variable_map.get(variable) {
-                        let already_initialized = val.is_some();
-                        let is_initialized = expression.is_some();
-                        if already_initialized && is_initialized {
-                            return Err(anyhow!("Global variable defined twice"));
-                        }
+            if let AstNode::Declare { variable, expression } = node {
+                // populate the global variable map
+                // can be declared many times, but defined only once
+                if let Some(val) = self.global_variable_map.get(variable) {
+                    let already_initialized = val.is_some();
+                    let is_initialized = expression.is_some();
+                    if already_initialized && is_initialized {
+                        return Err(anyhow!("Global variable defined twice"));
                     }
-
-                    let constant_option = match expression {
-                        Some(boxed) => {
-                            let AstNode::Constant { constant } = **boxed else {
-                                return Err(anyhow!("Global variable defined with non-constant expression"))
-                            };
-                            Some(constant)
-                        }
-                        None => None
-                    };
-                    self.global_variable_map.insert(variable.clone(), constant_option);
                 }
-                _ => {} // do nothing
+
+                let constant_option = match expression {
+                    Some(boxed) => {
+                        let AstNode::Constant { constant } = **boxed else {
+                            return Err(anyhow!("Global variable defined with non-constant expression"))
+                        };
+                        Some(constant)
+                    }
+                    None => None
+                };
+                self.global_variable_map.insert(variable.clone(), constant_option);
             }
         }
 

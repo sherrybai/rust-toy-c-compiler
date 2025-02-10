@@ -135,7 +135,7 @@ impl AstNode {
         let mut token_iter = peek_nth(tokens.iter());
         let mut function_or_declaration_list: Vec<Self> = Vec::new();
         loop {
-            if token_iter.peek() == None {
+            if token_iter.peek().is_none() {
                 return Ok(Self::Program { function_or_declaration_list });
             }
             let Some(TokenType::Keyword(s)) = token_iter.peek() else {

@@ -36,7 +36,7 @@ impl Validation {
                     if global_var_map.contains_key(&function_name[..]) {
                         return Err(anyhow!("function name already used as global variable name"));
                     }
-                    function_set.insert(&function_name);
+                    function_set.insert(function_name);
                     self.validate_function(function_name, parameters, statement)?;
                 }
                 AstNode::Declare { ref variable, ref expression } => {
@@ -48,7 +48,7 @@ impl Validation {
                             return Err(anyhow!("global variable initialized already"));
                         }
                     }
-                    global_var_map.insert(&variable, expression.is_some());
+                    global_var_map.insert(variable, expression.is_some());
                     if let Some(boxed) = expression {
                         match **boxed {
                             AstNode::Constant { constant: _ } => {}  // do nothing
@@ -70,7 +70,7 @@ impl Validation {
     fn validate_function(
         &mut self, 
         function_name: &String, 
-        parameters: &Vec<String>, 
+        parameters: &[String], 
         statement: &Option<Box<AstNode>>,
     ) -> anyhow::Result<()> {
         match statement {

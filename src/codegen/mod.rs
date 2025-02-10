@@ -162,49 +162,70 @@ impl Codegen {
         result
     }
 
-    fn generate_global_variable_assignment(&mut self, variable: &String, is_initialized: bool) -> String {
-        let offset_directive = match is_initialized {
-            true => "PAGE",
-            false => "GOTPAGE"
-        };
-
-        // overwrite value at address of global variable
+    fn generate_global_variable_assignment(&mut self, variable: &String, defined_at_declaration: bool) -> String {
         let mut result = String::new();
-        // load page offset to x8
-        result.push_str(&Self::format_instruction(
-            "adrp",
-            vec!["x8", &format!("_{}@{}", variable, offset_directive)]
-        ));
-        // load absolute memory address
-        result.push_str(&Self::format_instruction(
-            "ldr",
-            vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
-        ));
-        // store value at that memory address
-        result.push_str(&Self::format_instruction(
-            "str",
-            vec!["w0", "[x8]"],
-        ));
+
+        if defined_at_declaration {
+            let offset_directive = "PAGE";
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // write to absolute memory address
+            result.push_str(&Self::format_instruction(
+                "str",
+                vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+        } else {
+            let offset_directive: &str = "GOTPAGE";
+            // GOT indirection
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // write to absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["x8", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+            result.push_str(&Self::format_instruction("str", vec!["w0", "[x8]"]));
+        }
         result
     }
 
-    fn generate_global_variable_read(&mut self, variable: &String, is_initialized: bool) -> String {
-        let offset_directive = match is_initialized {
-            true => "PAGE",
-            false => "GOTPAGE"
-        };
+    fn generate_global_variable_read(&mut self, variable: &String, defined_at_declaration: bool) -> String {
         // overwrite value at address of global variable
         let mut result = String::new();
-        // load page offset to x8
-        result.push_str(&Self::format_instruction(
-            "adrp",
-            vec!["x8", &format!("_{}@{}", variable, offset_directive)]
-        ));
-        // load absolute memory address
-        result.push_str(&Self::format_instruction(
-            "ldr",
-            vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
-        ));
+
+        if defined_at_declaration {
+            let offset_directive = "PAGE";
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // write to absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+        } else {
+            let offset_directive: &str = "GOTPAGE";
+            // load address of current frame to x8
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // load absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["x8", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+            // load absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["w0", "[x8]"]
+            ));
+        }
         result
     }
 
@@ -1810,8 +1831,7 @@ mod tests {
             "
                 mov	w0, #2
                 adrp	x8, _a@PAGE
-                ldr	w0, [x8, _a@PAGEOFF]
-                str	w0, [x8]
+                str	w0, [x8, _a@PAGEOFF]
             "
         );
 
@@ -1825,7 +1845,7 @@ mod tests {
             "
                 mov	w0, #2
                 adrp	x8, _b@GOTPAGE
-                ldr	w0, [x8, _b@GOTPAGEOFF]
+                ldr	x8, [x8, _b@GOTPAGEOFF]
                 str	w0, [x8]
             "
         );
@@ -1871,7 +1891,8 @@ mod tests {
             result,
             "
                 adrp	x8, _b@GOTPAGE
-                ldr	w0, [x8, _b@GOTPAGEOFF]
+                ldr	x8, [x8, _b@GOTPAGEOFF]
+                ldr	w0, [x8]
             "
         );
     }

@@ -21,6 +21,7 @@ struct CodegenContext<'a> {
 pub struct Codegen {
     stack_offset_bytes: i32,
     label_counter: u32,
+    global_variable_map: HashMap<String, Option<u32>>
 }
 
 impl Codegen {
@@ -28,24 +29,66 @@ impl Codegen {
         Codegen {
             stack_offset_bytes: 0,
             label_counter: 1,
+            global_variable_map: HashMap::new()
         }
     }
 
     pub fn codegen(&mut self, ast: AstNode) -> anyhow::Result<String> {
-        let AstNode::Program { function_or_declaration_list: function_list } = ast else {
+        let AstNode::Program { function_or_declaration_list } = ast else {
             return Err(anyhow!("Called codegen on node that is not a program"));
         };
 
         let mut result: String = String::new();
 
+        // generate .text section (functions) first
+        result.push_str(&format!("{}.text\n", INDENT));
+
         // traverse the AST
-        for function in function_list.iter() {
-            // reset stack offset bytes
-            self.stack_offset_bytes = 0;
-            // generate the function
-            let generated_func = self.generate_function(function)?;
-            result.push_str(&generated_func);
+        for node in function_or_declaration_list.iter() {
+            match node {
+                AstNode::Function { function_name: _, parameters: _, body: _ } => { 
+                    // reset stack offset bytes
+                    self.stack_offset_bytes = 0;
+                    // generate the function
+                    let generated_func = self.generate_function(node)?;
+                    result.push_str(&generated_func);
+                }
+                AstNode::Declare { variable, expression } => {
+                    // populate the global variable map
+                    // can be declared many times, but defined only once
+                    if let Some(val) = self.global_variable_map.get(variable) {
+                        let already_initialized = match val {
+                            Some(_) => true,
+                            None => false
+                        };
+                        let is_initialized = match expression {
+                            Some(_) => true,
+                            None => false
+                        };
+                        if already_initialized && is_initialized {
+                            return Err(anyhow!("Global variable defined twice"));
+                        }
+                    }
+
+                    let constant_option = match expression {
+                        Some(boxed) => {
+                            let AstNode::Constant { constant } = **boxed else {
+                                return Err(anyhow!("Global variable defined with non-constant expression"))
+                            };
+                            Some(constant)
+                        }
+                        None => None
+                    };
+                    self.global_variable_map.insert(variable.clone(), constant_option);
+                }
+                _ => {
+                    return Err(anyhow!("Program contains top-level node that is not function or declaration"));
+                }
+            }
         }
+
+        // generate global variables last
+        result.push_str(&self.generate_global_variables()?);
 
         Ok(result)
     }
@@ -159,6 +202,7 @@ impl Codegen {
 
             // function definition
             result.push_str(&format!("{}.globl _{}\n", INDENT, function_name));
+            result.push_str(&format!("{}.p2align{}2\n", INDENT, INDENT));
             result.push_str(&format!("_{}:\n", function_name));
 
             // set up stack frame
@@ -797,6 +841,33 @@ impl Codegen {
         }
         Ok(result)
     }
+
+    fn generate_global_variables(
+        &mut self,
+    ) -> anyhow::Result<String> {
+        if self.global_variable_map.is_empty() {
+            return Ok("".into());
+        }
+
+        let mut result = String::new();
+        result.push_str(&format!("{}.data\n", INDENT));
+
+        for (variable, constant_option) in &self.global_variable_map {
+            match constant_option {
+                Some(constant) => {
+                    result.push_str(&format!("{}.globl _{}\n", INDENT, variable));
+                    result.push_str(&format!("{}.p2align{}2\n", INDENT, INDENT));
+                    result.push_str(&format!("_{}:\n", variable));
+                    result.push_str(&format!("{}.long{}{}\n", INDENT, INDENT, constant));
+                }
+                None => {
+                    result.push_str(&format!("{}.comm{}_{},4,2\n", INDENT, INDENT, variable));
+                }
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -825,7 +896,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -869,6 +942,7 @@ mod tests {
             result,
             "
                 .globl _foo
+                .p2align	2
             _foo:
                 stp	x29, x30, [sp, -16]!
                 mov	x29, sp
@@ -924,6 +998,7 @@ mod tests {
             result,
             "
                 .globl _main
+                .p2align	2
             _main:
                 stp	x29, x30, [sp, -16]!
                 mov	x29, sp
@@ -987,7 +1062,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1013,7 +1090,36 @@ mod tests {
         let mut codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
         // function declaration does not result in generated assembly
-        assert_str_trim_eq!(result, "")
+        assert_str_trim_eq!(result, "
+            .text
+        ")
+    }
+
+    #[test]
+    fn test_global_variables() {
+        let global_variable_1 = AstNode::Declare { variable: "a".into(), expression: None };
+        let global_variable_2 = AstNode::Declare { variable: "a".into(), expression: None };
+        let global_variable_3 = AstNode::Declare { 
+            variable: "a".into(), 
+            expression: Some(Box::new(AstNode::Constant { constant: 1 })) 
+        };
+        let global_variable_4 = AstNode::Declare { variable: "b".into(), expression: None };
+        let program = AstNode::Program {
+            function_or_declaration_list: vec![global_variable_1, global_variable_2, global_variable_3, global_variable_4],
+        };
+
+        let mut codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        // function declaration does not result in generated assembly
+        assert_str_trim_eq!(result, "
+        			.text
+                    .data
+                    .globl _a
+                    .p2align	2
+                _a:
+                	.long	1
+                    .comm	_b,4,2
+            ")
     }
 
     #[test]
@@ -1040,7 +1146,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1125,7 +1233,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1171,7 +1281,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1222,7 +1334,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1299,7 +1413,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1387,7 +1503,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1488,7 +1606,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp

@@ -197,11 +197,11 @@ impl Codegen {
             result.push_str(&generated_statement);
 
             // if there is no explicit return statement, then return 0
-            // return statements will jump over this instruction to the .Lreturn label
+            // return statements will jump over this instruction to the Lreturn label
             result.push_str(&Self::format_instruction("mov", vec!["w0", "#0"]));
 
             // write label for jumping to early return
-            result.push_str(&format!("{}_{}:\n", ".Lreturn", function_name));
+            result.push_str(&format!("{}_{}:\n", "Lreturn", function_name));
             result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
@@ -334,7 +334,7 @@ impl Codegen {
                 // jump to return label
                 result.push_str(&Self::format_instruction(
                     "b",
-                    vec![&format!(".Lreturn_{}", codegen_context.function_name)],
+                    vec![&format!("Lreturn_{}", codegen_context.function_name)],
                 ));
             }
             AstNode::If {
@@ -345,8 +345,8 @@ impl Codegen {
                 // evaluate condition
                 result.push_str(&self.generate_expression(condition, codegen_context)?);
 
-                let label_1 = &format!(".L{:?}", self.label_counter);
-                let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                let label_1 = &format!("L{:?}", self.label_counter);
+                let label_2 = &format!("L{:?}", self.label_counter + 1);
                 self.label_counter += 2;
                 // skip to label 1 if condition is false
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -409,9 +409,9 @@ impl Codegen {
                     }
                 }
 
-                let condition_label = &format!(".L{:?}", self.label_counter);
-                let end_of_body_label: &String = &format!(".L{:?}", self.label_counter + 1);
-                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 2);
+                let condition_label = &format!("L{:?}", self.label_counter);
+                let end_of_body_label: &String = &format!("L{:?}", self.label_counter + 1);
+                let end_of_loop_label = &format!("L{:?}", self.label_counter + 2);
                 self.label_counter += 3;
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
@@ -483,9 +483,9 @@ impl Codegen {
                 }
             }
             AstNode::While { condition, body } => {
-                let condition_label = &format!(".L{:?}", self.label_counter);
-                let end_of_body_label: &String = &format!(".L{:?}", self.label_counter + 1);
-                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 2);
+                let condition_label = &format!("L{:?}", self.label_counter);
+                let end_of_body_label: &String = &format!("L{:?}", self.label_counter + 1);
+                let end_of_loop_label = &format!("L{:?}", self.label_counter + 2);
                 self.label_counter += 3;
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
@@ -516,9 +516,9 @@ impl Codegen {
                 result.push_str(&format!("{}:\n", end_of_loop_label));
             }
             AstNode::Do { body, condition } => {
-                let start_of_body_label = &format!(".L{:?}", self.label_counter);
-                let end_of_body_label: &String = &format!(".L{:?}", self.label_counter + 1);
-                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 2);
+                let start_of_body_label = &format!("L{:?}", self.label_counter);
+                let end_of_body_label: &String = &format!("L{:?}", self.label_counter + 1);
+                let end_of_loop_label = &format!("L{:?}", self.label_counter + 2);
                 self.label_counter += 3;
                 // mark start of body with label
                 result.push_str(&format!("{}:\n", start_of_body_label));
@@ -639,8 +639,8 @@ impl Codegen {
                         result.push_str(&Self::format_instruction("sdiv", vec!["w0", "w1", "w0"]));
                     }
                     Operator::And => {
-                        let label_1 = &format!(".L{:?}", self.label_counter);
-                        let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                        let label_1 = &format!("L{:?}", self.label_counter);
+                        let label_2 = &format!("L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
                         // skip to label 1 if any value is 0
                         result.push_str(&Self::format_instruction("cmp", vec!["w1", "0"]));
@@ -657,8 +657,8 @@ impl Codegen {
                         result.push_str(&format!("{}:\n", label_2));
                     }
                     Operator::Or => {
-                        let label_1 = &format!(".L{:?}", self.label_counter);
-                        let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                        let label_1 = &format!("L{:?}", self.label_counter);
+                        let label_2 = &format!("L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
                         // skip to label 1 if any value is not 0
                         result.push_str(&Self::format_instruction("cmp", vec!["w1", "0"]));
@@ -725,8 +725,8 @@ impl Codegen {
                 // evaluate condition
                 result.push_str(&self.generate_expression(condition, codegen_context)?);
 
-                let label_1 = &format!(".L{:?}", self.label_counter);
-                let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                let label_1 = &format!("L{:?}", self.label_counter);
+                let label_2 = &format!("L{:?}", self.label_counter + 1);
                 self.label_counter += 2;
                 // skip to label 1 if condition is false
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -830,9 +830,9 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
-                    b	.Lreturn_main
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -884,9 +884,9 @@ mod tests {
                 str	w7, [sp, 0]
                 ldr	w0, [sp, 32]
                 add	sp, sp, 32
-                b	.Lreturn_foo
+                b	Lreturn_foo
                 mov	w0, #0
-            .Lreturn_foo:
+            Lreturn_foo:
                 ldp	x29, x30, [sp], 16
                 ret
             "
@@ -960,9 +960,9 @@ mod tests {
                 ldr	w7, [sp, 8]
                 bl	_foo
                 add	sp, sp, 16
-                b	.Lreturn_main
+                b	Lreturn_main
                 mov	w0, #0
-            .Lreturn_main:
+            Lreturn_main:
                 ldp	x29, x30, [sp], 16
                 ret
             "
@@ -992,7 +992,7 @@ mod tests {
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1046,9 +1046,9 @@ mod tests {
                     mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
-                    b	.Lreturn_main
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1136,9 +1136,9 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
-                    b	.Lreturn_main
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1182,17 +1182,17 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     cmp	w1, 0
-                    beq	.L1
+                    beq	L1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, 1
-                    b	.L2
-                .L1:
+                    b	L2
+                L1:
                     mov	w0, 0
-                .L2:
-                    b	.Lreturn_main
+                L2:
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1231,7 +1231,7 @@ mod tests {
                     str	w0, [sp, 12]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1310,7 +1310,7 @@ mod tests {
                     str	w0, [sp, 8]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1416,7 +1416,7 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1512,7 +1512,7 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:                    
+                Lreturn_main:                    
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1579,12 +1579,12 @@ mod tests {
             "
                     mov	w0, #1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, #2
-                    b	.L2
-                .L1:
+                    b	L2
+                L1:
                     mov	w0, #3
-                .L2:
+                L2:
             "
         )
     }
@@ -1616,12 +1616,12 @@ mod tests {
             "
                     mov	w0, #1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, #2
-                    b	.Lreturn_main
-                    b	.L2
-                .L1:
-                .L2:
+                    b	Lreturn_main
+                    b	L2
+                L1:
+                L2:
             "
         )
     }
@@ -1655,14 +1655,14 @@ mod tests {
             "
                     mov	w0, #1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, #2
-                    b	.Lreturn_main
-                    b	.L2
-                .L1:
+                    b	Lreturn_main
+                    b	L2
+                L1:
                     mov	w0, #3
-                    b	.Lreturn_main
-                .L2:
+                    b	Lreturn_main
+                L2:
             "
         )
     }
@@ -1711,7 +1711,7 @@ mod tests {
                     mov	w0, #0
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
-                .L1:
+                L1:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #5
@@ -1719,17 +1719,17 @@ mod tests {
                     cmp	w1, w0
                     cset	w0, lt
                     cmp	w0, 0
-                    beq	.L3
+                    beq	L3
                     mov	w0, #2
-                .L2:
+                L2:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #1
                     ldr	w1, [sp, 8]
                     add	w0, w1, w0
                     str	w0, [sp, 12]
-                    b	.L1
-                .L3:
+                    b	L1
+                L3:
                     add	sp, sp, 16
             "
         )
@@ -1765,7 +1765,7 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .L1:
+                L1:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #5
@@ -1773,11 +1773,11 @@ mod tests {
                     cmp	w1, w0
                     cset	w0, lt
                     cmp	w0, 0
-                    beq	.L3
+                    beq	L3
                     mov	w0, #2
-                .L2:
-                    b	.L1
-                .L3:
+                L2:
+                    b	L1
+                L3:
             "
         )
     }
@@ -1812,9 +1812,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .L1:
+                L1:
                     mov	w0, #2
-                .L2:
+                L2:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #5
@@ -1822,9 +1822,9 @@ mod tests {
                     cmp	w1, w0
                     cset	w0, lt
                     cmp	w0, 0
-                    beq	.L3
-                    b	.L1
-                .L3:
+                    beq	L3
+                    b	L1
+                L3:
             "
         )
     }

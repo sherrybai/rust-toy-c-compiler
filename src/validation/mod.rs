@@ -18,61 +18,99 @@ impl Validation {
     }
 
     pub fn validate_ast(&mut self, ast: &AstNode) -> anyhow::Result<()> {
-        let AstNode::Program { function_list } = ast else {
+        let AstNode::Program { function_or_declaration_list } = ast else {
             return Err(anyhow!("Called validate_ast on node that is not a program"));
         };
 
+        let mut function_set: HashSet<&str> = HashSet::new();
+        let mut global_var_map: HashMap<&str, bool> = HashMap::new();  // value: has been initialized
+
         // track function declarations/definitions
-        for function in function_list {
-            let AstNode::Function {
-                ref function_name,
-                ref parameters,
-                body: ref statement,
-            } = function
-            else {
-                return Err(anyhow!("Program function list contains non-function"));
-            };
-
-            match statement {
-                None => {
-                    // function declaration
-                    // cannot have two function declarations with same name, different number of params
-                    if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
-                        if parameters.len() != *param_count {
-                            return Err(anyhow!(
-                                "Found duplicate function declarations with different param counts"
-                            ));
-                        }
+        for node in function_or_declaration_list {
+            match node {
+                AstNode::Function {
+                    ref function_name,
+                    ref parameters,
+                    body: ref statement,
+                } => {
+                    if global_var_map.contains_key(&function_name[..]) {
+                        return Err(anyhow!("function name already used as global variable name"));
                     }
-                    self.function_name_to_arg_count
-                        .insert(function_name.clone(), parameters.len());
+                    function_set.insert(function_name);
+                    self.validate_function(function_name, parameters, statement)?;
                 }
-                Some(statement_node) => {
-                    // function definition
-                    // cannot have two function definitions
-                    if self.function_is_defined.contains(function_name) {
-                        return Err(anyhow!("Found duplicate function definitions"));
+                AstNode::Declare { ref variable, ref expression } => {
+                    if function_set.contains(&variable[..]) {
+                        return Err(anyhow!("global variable name already used as function name"));
                     }
-                    if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
-                        // cannot have definition with different number of params as declaration
-                        if parameters.len() != *param_count {
-                            return Err(anyhow!(
-                                "Defined and declared functions have different number of arguments"
-                            ));
+                    if let Some(is_initialized) = global_var_map.get(&variable[..]) {
+                        if *is_initialized {
+                            return Err(anyhow!("global variable initialized already"));
                         }
-                    } else {
-                        // function declared and defined at the same time
-                        self.function_name_to_arg_count
-                            .insert(function_name.clone(), parameters.len());
                     }
-                    self.function_is_defined.insert(function_name.clone());
-
-                    // traverse function to validate expressions
-                    self.validate_block_item(statement_node)?;
+                    global_var_map.insert(variable, expression.is_some());
+                    if let Some(boxed) = expression {
+                        match **boxed {
+                            AstNode::Constant { constant: _ } => {}  // do nothing
+                            _ => {
+                                return Err(anyhow!("global variable can only be initialized as constant"));
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    return Err(anyhow!("Program contains top-level node that is not function or declaration"));
                 }
             }
         }
 
+        Ok(())
+    }
+
+    fn validate_function(
+        &mut self, 
+        function_name: &String, 
+        parameters: &[String], 
+        statement: &Option<Box<AstNode>>,
+    ) -> anyhow::Result<()> {
+        match statement {
+            None => {
+                // function declaration
+                // cannot have two function declarations with same name, different number of params
+                if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
+                    if parameters.len() != *param_count {
+                        return Err(anyhow!(
+                            "Found duplicate function declarations with different param counts"
+                        ));
+                    }
+                }
+                self.function_name_to_arg_count
+                    .insert(function_name.clone(), parameters.len());
+            }
+            Some(statement_node) => {
+                // function definition
+                // cannot have two function definitions
+                if self.function_is_defined.contains(function_name) {
+                    return Err(anyhow!("Found duplicate function definitions"));
+                }
+                if let Some(param_count) = self.function_name_to_arg_count.get(function_name) {
+                    // cannot have definition with different number of params as declaration
+                    if parameters.len() != *param_count {
+                        return Err(anyhow!(
+                            "Defined and declared functions have different number of arguments"
+                        ));
+                    }
+                } else {
+                    // function declared and defined at the same time
+                    self.function_name_to_arg_count
+                        .insert(function_name.clone(), parameters.len());
+                }
+                self.function_is_defined.insert(function_name.clone());
+
+                // traverse function to validate expressions
+                self.validate_block_item(statement_node)?;
+            }
+        }
         Ok(())
     }
 
@@ -234,7 +272,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut validation = Validation::new();
@@ -263,7 +301,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function_1, function_2],
+            function_or_declaration_list: vec![function_1, function_2],
         };
 
         let mut validation = Validation::new();
@@ -286,7 +324,7 @@ mod tests {
             body: None,
         };
         let program = AstNode::Program {
-            function_list: vec![declaration_1, declaration_2],
+            function_or_declaration_list: vec![declaration_1, declaration_2],
         };
 
         let mut validation = Validation::new();
@@ -314,7 +352,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![declaration, definition],
+            function_or_declaration_list: vec![declaration, definition],
         };
 
         let mut validation = Validation::new();
@@ -346,7 +384,7 @@ mod tests {
         };
         // helper function declared after main
         let program = AstNode::Program {
-            function_list: vec![function_2, function_1],
+            function_or_declaration_list: vec![function_2, function_1],
         };
 
         let mut validation = Validation::new();
@@ -375,7 +413,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function_1, function_2],
+            function_or_declaration_list: vec![function_1, function_2],
         };
 
         let mut validation = Validation::new();

@@ -21,6 +21,7 @@ struct CodegenContext<'a> {
 pub struct Codegen {
     stack_offset_bytes: i32,
     label_counter: u32,
+    global_variable_map: HashMap<String, Option<u32>>
 }
 
 impl Codegen {
@@ -28,24 +29,67 @@ impl Codegen {
         Codegen {
             stack_offset_bytes: 0,
             label_counter: 1,
+            global_variable_map: HashMap::new()
         }
     }
 
     pub fn codegen(&mut self, ast: AstNode) -> anyhow::Result<String> {
-        let AstNode::Program { function_list } = ast else {
+        let AstNode::Program { function_or_declaration_list } = ast else {
             return Err(anyhow!("Called codegen on node that is not a program"));
         };
 
         let mut result: String = String::new();
 
-        // traverse the AST
-        for function in function_list.iter() {
-            // reset stack offset bytes
-            self.stack_offset_bytes = 0;
-            // generate the function
-            let generated_func = self.generate_function(function)?;
-            result.push_str(&generated_func);
+        // populate global variable map
+        for node in function_or_declaration_list.iter() {
+            if let AstNode::Declare { variable, expression } = node {
+                // populate the global variable map
+                // can be declared many times, but defined only once
+                if let Some(val) = self.global_variable_map.get(variable) {
+                    let already_initialized = val.is_some();
+                    let is_initialized = expression.is_some();
+                    if already_initialized && is_initialized {
+                        return Err(anyhow!("Global variable defined twice"));
+                    }
+                }
+
+                let constant_option = match expression {
+                    Some(boxed) => {
+                        let AstNode::Constant { constant } = **boxed else {
+                            return Err(anyhow!("Global variable defined with non-constant expression"))
+                        };
+                        Some(constant)
+                    }
+                    None => None
+                };
+                self.global_variable_map.insert(variable.clone(), constant_option);
+            }
         }
+
+        // generate .text section (functions)
+        result.push_str(&format!("{}.text\n", INDENT));
+
+        // traverse the AST
+        for node in function_or_declaration_list.iter() {
+            match node {
+                AstNode::Function { function_name: _, parameters: _, body: _ } => { 
+                    // reset stack offset bytes
+                    self.stack_offset_bytes = 0;
+                    // generate the function
+                    let generated_func = self.generate_function(node)?;
+                    result.push_str(&generated_func);
+                }
+                AstNode::Declare { variable: _, expression: _ } => {
+                    // do nothing for now; generate global variables later
+                }
+                _ => {
+                    return Err(anyhow!("Program contains top-level node that is not function or declaration"));
+                }
+            }
+        }
+
+        // generate global variables last
+        result.push_str(&self.generate_global_variables()?);
 
         Ok(result)
     }
@@ -115,6 +159,73 @@ impl Codegen {
         result
     }
 
+    fn generate_global_variable_assignment(&mut self, variable: &String, defined_at_declaration: bool) -> String {
+        let mut result = String::new();
+
+        if defined_at_declaration {
+            let offset_directive = "PAGE";
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // write to absolute memory address
+            result.push_str(&Self::format_instruction(
+                "str",
+                vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+        } else {
+            let offset_directive: &str = "GOTPAGE";
+            // GOT indirection
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // write to absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["x8", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+            result.push_str(&Self::format_instruction("str", vec!["w0", "[x8]"]));
+        }
+        result
+    }
+
+    fn generate_global_variable_read(&mut self, variable: &String, defined_at_declaration: bool) -> String {
+        // overwrite value at address of global variable
+        let mut result = String::new();
+
+        if defined_at_declaration {
+            let offset_directive = "PAGE";
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // write to absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+        } else {
+            let offset_directive: &str = "GOTPAGE";
+            // load address of current frame to x8
+            result.push_str(&Self::format_instruction(
+                "adrp",
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+            ));
+            // load absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["x8", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+            ));
+            // load absolute memory address
+            result.push_str(&Self::format_instruction(
+                "ldr",
+                vec!["w0", "[x8]"]
+            ));
+        }
+        result
+    }
+
     fn generate_function_prologue() -> String {
         let mut result = String::new();
         // write frame pointer and link register (return address) to stack
@@ -159,6 +270,7 @@ impl Codegen {
 
             // function definition
             result.push_str(&format!("{}.globl _{}\n", INDENT, function_name));
+            result.push_str(&format!("{}.p2align{}2\n", INDENT, INDENT));
             result.push_str(&format!("_{}:\n", function_name));
 
             // set up stack frame
@@ -197,11 +309,11 @@ impl Codegen {
             result.push_str(&generated_statement);
 
             // if there is no explicit return statement, then return 0
-            // return statements will jump over this instruction to the .Lreturn label
+            // return statements will jump over this instruction to the Lreturn label
             result.push_str(&Self::format_instruction("mov", vec!["w0", "#0"]));
 
             // write label for jumping to early return
-            result.push_str(&format!("{}_{}:\n", ".Lreturn", function_name));
+            result.push_str(&format!("{}_{}:\n", "Lreturn", function_name));
             result.push_str(&self.generate_function_epilogue());
             result.push_str(&Self::format_instruction("ret", vec![]));
         }
@@ -334,7 +446,7 @@ impl Codegen {
                 // jump to return label
                 result.push_str(&Self::format_instruction(
                     "b",
-                    vec![&format!(".Lreturn_{}", codegen_context.function_name)],
+                    vec![&format!("Lreturn_{}", codegen_context.function_name)],
                 ));
             }
             AstNode::If {
@@ -345,8 +457,8 @@ impl Codegen {
                 // evaluate condition
                 result.push_str(&self.generate_expression(condition, codegen_context)?);
 
-                let label_1 = &format!(".L{:?}", self.label_counter);
-                let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                let label_1 = &format!("L{:?}", self.label_counter);
+                let label_2 = &format!("L{:?}", self.label_counter + 1);
                 self.label_counter += 2;
                 // skip to label 1 if condition is false
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -409,9 +521,9 @@ impl Codegen {
                     }
                 }
 
-                let condition_label = &format!(".L{:?}", self.label_counter);
-                let end_of_body_label: &String = &format!(".L{:?}", self.label_counter + 1);
-                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 2);
+                let condition_label = &format!("L{:?}", self.label_counter);
+                let end_of_body_label: &String = &format!("L{:?}", self.label_counter + 1);
+                let end_of_loop_label = &format!("L{:?}", self.label_counter + 2);
                 self.label_counter += 3;
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
@@ -483,9 +595,9 @@ impl Codegen {
                 }
             }
             AstNode::While { condition, body } => {
-                let condition_label = &format!(".L{:?}", self.label_counter);
-                let end_of_body_label: &String = &format!(".L{:?}", self.label_counter + 1);
-                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 2);
+                let condition_label = &format!("L{:?}", self.label_counter);
+                let end_of_body_label: &String = &format!("L{:?}", self.label_counter + 1);
+                let end_of_loop_label = &format!("L{:?}", self.label_counter + 2);
                 self.label_counter += 3;
                 // mark condition with label
                 result.push_str(&format!("{}:\n", condition_label));
@@ -516,9 +628,9 @@ impl Codegen {
                 result.push_str(&format!("{}:\n", end_of_loop_label));
             }
             AstNode::Do { body, condition } => {
-                let start_of_body_label = &format!(".L{:?}", self.label_counter);
-                let end_of_body_label: &String = &format!(".L{:?}", self.label_counter + 1);
-                let end_of_loop_label = &format!(".L{:?}", self.label_counter + 2);
+                let start_of_body_label = &format!("L{:?}", self.label_counter);
+                let end_of_body_label: &String = &format!("L{:?}", self.label_counter + 1);
+                let end_of_loop_label = &format!("L{:?}", self.label_counter + 2);
                 self.label_counter += 3;
                 // mark start of body with label
                 result.push_str(&format!("{}:\n", start_of_body_label));
@@ -576,11 +688,16 @@ impl Codegen {
                 ));
             }
             AstNode::Variable { variable } => {
-                if !codegen_context.variable_map.contains_key(variable) {
+                if codegen_context.variable_map.contains_key(variable) {
+                    let stack_offset = codegen_context.variable_map.get(variable).unwrap();
+                    result.push_str(&self.generate_variable_read(*stack_offset));
+                } else if self.global_variable_map.contains_key(variable) {
+                    let is_initialized = self.global_variable_map.get(variable).unwrap().is_some();
+                    result.push_str(&self.generate_global_variable_read(variable, is_initialized));
+                } else {
                     return Err(anyhow!("Variable not declared before read"));
                 }
-                let stack_offset = codegen_context.variable_map.get(variable).unwrap();
-                result.push_str(&self.generate_variable_read(*stack_offset));
+
             }
             AstNode::UnaryOp { operator, factor } => {
                 let nested_expression = self.generate_expression(factor, codegen_context)?;
@@ -639,8 +756,8 @@ impl Codegen {
                         result.push_str(&Self::format_instruction("sdiv", vec!["w0", "w1", "w0"]));
                     }
                     Operator::And => {
-                        let label_1 = &format!(".L{:?}", self.label_counter);
-                        let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                        let label_1 = &format!("L{:?}", self.label_counter);
+                        let label_2 = &format!("L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
                         // skip to label 1 if any value is 0
                         result.push_str(&Self::format_instruction("cmp", vec!["w1", "0"]));
@@ -657,8 +774,8 @@ impl Codegen {
                         result.push_str(&format!("{}:\n", label_2));
                     }
                     Operator::Or => {
-                        let label_1 = &format!(".L{:?}", self.label_counter);
-                        let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                        let label_1 = &format!("L{:?}", self.label_counter);
+                        let label_2 = &format!("L{:?}", self.label_counter + 1);
                         self.label_counter += 2;
                         // skip to label 1 if any value is not 0
                         result.push_str(&Self::format_instruction("cmp", vec!["w1", "0"]));
@@ -707,15 +824,19 @@ impl Codegen {
                 variable,
                 expression,
             } => {
-                if !codegen_context.variable_map.contains_key(variable) {
-                    return Err(anyhow!("Variable not declared before assignment"));
-                }
                 // generate expression
                 result.push_str(&self.generate_expression(expression, codegen_context)?);
-
-                // move w0 to location at stack offset
-                let stack_offset = codegen_context.variable_map.get(variable).unwrap();
-                result.push_str(&self.generate_variable_assignment(*stack_offset));
+                if codegen_context.variable_map.contains_key(variable) {
+                    // move w0 to location at stack offset
+                    let stack_offset = codegen_context.variable_map.get(variable).unwrap();
+                    result.push_str(&self.generate_variable_assignment(*stack_offset));
+                } else if self.global_variable_map.contains_key(variable) {
+                    // move w0 to address of global variable
+                    let is_initialized = self.global_variable_map.get(variable).unwrap().is_some();
+                    result.push_str(&self.generate_global_variable_assignment(variable, is_initialized));
+                } else {
+                    return Err(anyhow!("Variable not declared before assignment"));
+                }
             }
             AstNode::Conditional {
                 condition,
@@ -725,8 +846,8 @@ impl Codegen {
                 // evaluate condition
                 result.push_str(&self.generate_expression(condition, codegen_context)?);
 
-                let label_1 = &format!(".L{:?}", self.label_counter);
-                let label_2 = &format!(".L{:?}", self.label_counter + 1);
+                let label_1 = &format!("L{:?}", self.label_counter);
+                let label_2 = &format!("L{:?}", self.label_counter + 1);
                 self.label_counter += 2;
                 // skip to label 1 if condition is false
                 result.push_str(&Self::format_instruction("cmp", vec!["w0", "0"]));
@@ -797,6 +918,33 @@ impl Codegen {
         }
         Ok(result)
     }
+
+    fn generate_global_variables(
+        &mut self,
+    ) -> anyhow::Result<String> {
+        if self.global_variable_map.is_empty() {
+            return Ok("".into());
+        }
+
+        let mut result = String::new();
+        result.push_str(&format!("{}.data\n", INDENT));
+
+        for (variable, constant_option) in &self.global_variable_map {
+            match constant_option {
+                Some(constant) => {
+                    result.push_str(&format!("{}.globl _{}\n", INDENT, variable));
+                    result.push_str(&format!("{}.p2align{}2\n", INDENT, INDENT));
+                    result.push_str(&format!("_{}:\n", variable));
+                    result.push_str(&format!("{}.long{}{}\n", INDENT, INDENT, constant));
+                }
+                None => {
+                    result.push_str(&format!("{}.comm{}_{},4,2\n", INDENT, INDENT, variable));
+                }
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -817,7 +965,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
@@ -825,14 +973,16 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
-                    b	.Lreturn_main
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -869,6 +1019,7 @@ mod tests {
             result,
             "
                 .globl _foo
+                .p2align	2
             _foo:
                 stp	x29, x30, [sp, -16]!
                 mov	x29, sp
@@ -884,9 +1035,9 @@ mod tests {
                 str	w7, [sp, 0]
                 ldr	w0, [sp, 32]
                 add	sp, sp, 32
-                b	.Lreturn_foo
+                b	Lreturn_foo
                 mov	w0, #0
-            .Lreturn_foo:
+            Lreturn_foo:
                 ldp	x29, x30, [sp], 16
                 ret
             "
@@ -924,6 +1075,7 @@ mod tests {
             result,
             "
                 .globl _main
+                .p2align	2
             _main:
                 stp	x29, x30, [sp, -16]!
                 mov	x29, sp
@@ -960,9 +1112,9 @@ mod tests {
                 ldr	w7, [sp, 8]
                 bl	_foo
                 add	sp, sp, 16
-                b	.Lreturn_main
+                b	Lreturn_main
                 mov	w0, #0
-            .Lreturn_main:
+            Lreturn_main:
                 ldp	x29, x30, [sp], 16
                 ret
             "
@@ -979,7 +1131,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
@@ -987,12 +1139,14 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1007,13 +1161,54 @@ mod tests {
             body: None,
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
         // function declaration does not result in generated assembly
-        assert_str_trim_eq!(result, "")
+        assert_str_trim_eq!(result, "
+            .text
+        ")
+    }
+
+    #[test]
+    fn test_global_variables() {
+        let global_variable_1 = AstNode::Declare { variable: "a".into(), expression: None };
+        let global_variable_2 = AstNode::Declare { variable: "a".into(), expression: None };
+        let global_variable_3 = AstNode::Declare { 
+            variable: "a".into(), 
+            expression: Some(Box::new(AstNode::Constant { constant: 1 })) 
+        };
+        let program = AstNode::Program {
+            function_or_declaration_list: vec![global_variable_1, global_variable_2, global_variable_3],
+        };
+
+        let mut codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(result, "
+        			.text
+                    .data
+                    .globl _a
+                    .p2align	2
+                _a:
+                	.long	1
+            ")
+    }
+
+    #[test]
+    fn test_global_variable_undeclared() {
+        let global_variable_1 = AstNode::Declare { variable: "a".into(), expression: None };
+        let program = AstNode::Program {
+            function_or_declaration_list: vec![global_variable_1],
+        };
+        let mut codegen = Codegen::new();
+        let result = codegen.codegen(program).unwrap();
+        assert_str_trim_eq!(result, "
+        			.text
+                    .data
+                	.comm	_a,4,2
+            ")
     }
 
     #[test]
@@ -1032,7 +1227,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen = Codegen::new();
@@ -1040,15 +1235,17 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
                     mov	w0, #2
                     mvn	w0, w0
-                    b	.Lreturn_main
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1117,7 +1314,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1125,7 +1322,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1136,9 +1335,9 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     add	w0, w1, w0
-                    b	.Lreturn_main
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1163,7 +1362,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1171,7 +1370,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1182,17 +1383,17 @@ mod tests {
                     ldr	w1, [sp, 12]
                     add	sp, sp, 16
                     cmp	w1, 0
-                    beq	.L1
+                    beq	L1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, 1
-                    b	.L2
-                .L1:
+                    b	L2
+                L1:
                     mov	w0, 0
-                .L2:
-                    b	.Lreturn_main
+                L2:
+                    b	Lreturn_main
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1214,7 +1415,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1222,7 +1423,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1231,7 +1434,7 @@ mod tests {
                     str	w0, [sp, 12]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1258,7 +1461,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1291,7 +1494,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1299,7 +1502,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1310,7 +1515,7 @@ mod tests {
                     str	w0, [sp, 8]
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1379,7 +1584,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1387,7 +1592,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1416,7 +1623,7 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:
+                Lreturn_main:
                     ldp	x29, x30, [sp], 16
                     ret
             "
@@ -1480,7 +1687,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1488,7 +1695,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .globl _main
+            		.text
+                    .globl _main
+                    .p2align	2
                 _main:
                     stp	x29, x30, [sp, -16]!
                     mov	x29, sp
@@ -1512,13 +1721,13 @@ mod tests {
                     add	sp, sp, 16
                     add	sp, sp, 16
                     mov	w0, #0
-                .Lreturn_main:                    
+                Lreturn_main:                    
                     ldp	x29, x30, [sp], 16
                     ret
             "
         )
     }
-
+    
     #[test]
     fn test_variable_read_nested() {
         let statement_1 = AstNode::Declare {
@@ -1547,7 +1756,7 @@ mod tests {
             })),
         };
         let program = AstNode::Program {
-            function_list: vec![function],
+            function_or_declaration_list: vec![function],
         };
 
         let mut codegen: Codegen = Codegen::new();
@@ -1579,15 +1788,112 @@ mod tests {
             "
                     mov	w0, #1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, #2
-                    b	.L2
-                .L1:
+                    b	L2
+                L1:
                     mov	w0, #3
-                .L2:
+                L2:
             "
         )
     }
+
+    #[test]
+    fn test_global_variable_assignment() {
+        let mut global_variable_map: HashMap<String, Option<u32>> = HashMap::new();
+        global_variable_map.insert("a".into(), Some(1));
+        global_variable_map.insert("b".into(), None);
+
+        let mut codegen = Codegen {
+            label_counter: 1,
+            stack_offset_bytes: 0,
+            global_variable_map
+        };
+        let codegen_context = CodegenContext {
+            variable_map: &mut HashMap::new(),
+            current_scope: &mut HashSet::new(),
+            break_location_label: None,
+            continue_location_label: None,
+            function_name: &"main".into(),
+        };
+
+        let assignment_1 = AstNode::Assign {
+            variable: "a".into(),
+            expression: Box::new(AstNode::Constant { constant: 2 }),
+        };
+
+        let result = codegen.generate_expression(&assignment_1, &codegen_context).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                mov	w0, #2
+                adrp	x8, _a@PAGE
+                str	w0, [x8, _a@PAGEOFF]
+            "
+        );
+
+        let assignment_2 = AstNode::Assign {
+            variable: "b".into(),
+            expression: Box::new(AstNode::Constant { constant: 2 }),
+        };
+        let result = codegen.generate_expression(&assignment_2, &codegen_context).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                mov	w0, #2
+                adrp	x8, _b@GOTPAGE
+                ldr	x8, [x8, _b@GOTPAGEOFF]
+                str	w0, [x8]
+            "
+        );
+    }
+
+    #[test]
+    fn test_global_variable_read() {
+        let mut global_variable_map: HashMap<String, Option<u32>> = HashMap::new();
+        global_variable_map.insert("a".into(), Some(1));
+        global_variable_map.insert("b".into(), None);
+
+        let mut codegen = Codegen {
+            label_counter: 1,
+            stack_offset_bytes: 0,
+            global_variable_map
+        };
+        let codegen_context = CodegenContext {
+            variable_map: &mut HashMap::new(),
+            current_scope: &mut HashSet::new(),
+            break_location_label: None,
+            continue_location_label: None,
+            function_name: &"main".into(),
+        };
+
+        let read_1 = AstNode::Variable {
+            variable: "a".into(),
+        };
+
+        let result = codegen.generate_expression(&read_1, &codegen_context).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                adrp	x8, _a@PAGE
+                ldr	w0, [x8, _a@PAGEOFF]
+            "
+        );
+
+        let read_2 = AstNode::Variable {
+            variable: "b".into(),
+        };
+        let result = codegen.generate_expression(&read_2, &codegen_context).unwrap();
+        assert_str_trim_eq!(
+            result,
+            "
+                adrp	x8, _b@GOTPAGE
+                ldr	x8, [x8, _b@GOTPAGEOFF]
+                ldr	w0, [x8]
+            "
+        );
+    }
+
 
     #[test]
     fn test_if_statement_no_body() {
@@ -1616,12 +1922,12 @@ mod tests {
             "
                     mov	w0, #1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, #2
-                    b	.Lreturn_main
-                    b	.L2
-                .L1:
-                .L2:
+                    b	Lreturn_main
+                    b	L2
+                L1:
+                L2:
             "
         )
     }
@@ -1655,14 +1961,14 @@ mod tests {
             "
                     mov	w0, #1
                     cmp	w0, 0
-                    beq	.L1
+                    beq	L1
                     mov	w0, #2
-                    b	.Lreturn_main
-                    b	.L2
-                .L1:
+                    b	Lreturn_main
+                    b	L2
+                L1:
                     mov	w0, #3
-                    b	.Lreturn_main
-                .L2:
+                    b	Lreturn_main
+                L2:
             "
         )
     }
@@ -1711,7 +2017,7 @@ mod tests {
                     mov	w0, #0
                     sub	sp, sp, #16
                     str	w0, [sp, 12]
-                .L1:
+                L1:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #5
@@ -1719,17 +2025,17 @@ mod tests {
                     cmp	w1, w0
                     cset	w0, lt
                     cmp	w0, 0
-                    beq	.L3
+                    beq	L3
                     mov	w0, #2
-                .L2:
+                L2:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #1
                     ldr	w1, [sp, 8]
                     add	w0, w1, w0
                     str	w0, [sp, 12]
-                    b	.L1
-                .L3:
+                    b	L1
+                L3:
                     add	sp, sp, 16
             "
         )
@@ -1765,7 +2071,7 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .L1:
+                L1:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #5
@@ -1773,11 +2079,11 @@ mod tests {
                     cmp	w1, w0
                     cset	w0, lt
                     cmp	w0, 0
-                    beq	.L3
+                    beq	L3
                     mov	w0, #2
-                .L2:
-                    b	.L1
-                .L3:
+                L2:
+                    b	L1
+                L3:
             "
         )
     }
@@ -1812,9 +2118,9 @@ mod tests {
         assert_str_trim_eq!(
             result,
             "
-                .L1:
+                L1:
                     mov	w0, #2
-                .L2:
+                L2:
                     ldr	w0, [sp, 12]
                     str	w0, [sp, 8]
                     mov	w0, #5
@@ -1822,9 +2128,9 @@ mod tests {
                     cmp	w1, w0
                     cset	w0, lt
                     cmp	w0, 0
-                    beq	.L3
-                    b	.L1
-                .L3:
+                    beq	L3
+                    b	L1
+                L3:
             "
         )
     }

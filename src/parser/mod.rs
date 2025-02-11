@@ -136,7 +136,9 @@ impl AstNode {
         let mut function_or_declaration_list: Vec<Self> = Vec::new();
         loop {
             if token_iter.peek().is_none() {
-                return Ok(Self::Program { function_or_declaration_list });
+                return Ok(Self::Program {
+                    function_or_declaration_list,
+                });
             }
             let Some(TokenType::Keyword(s)) = token_iter.peek() else {
                 return Err(anyhow!("First keyword of function is not 'int'"));
@@ -154,9 +156,9 @@ impl AstNode {
                 }
                 Some(_) => {
                     let declaration: Self = Self::parse_declaration(&mut token_iter)?;
-                    function_or_declaration_list.push(declaration);              
+                    function_or_declaration_list.push(declaration);
                 }
-                None => { return Err(anyhow!("Function or declaration cannot be parsed")) }
+                None => return Err(anyhow!("Function or declaration cannot be parsed")),
             }
         }
     }
@@ -191,7 +193,7 @@ impl AstNode {
             if let TokenType::ClosedParens = next_token {
                 break;
             }
-            
+
             // int
             let TokenType::Keyword(s) = next_token else {
                 return Err(anyhow!("Missing type int before parameter name"));
@@ -203,7 +205,7 @@ impl AstNode {
             let TokenType::Identifier(s) = Self::get_next_token_from_iter(token_iter)? else {
                 return Err(anyhow!("Missing parameter name"));
             };
-            parameters.push(s.to_string());     
+            parameters.push(s.to_string());
             // comma
             if let Some(t) = token_iter.peek() {
                 match t {

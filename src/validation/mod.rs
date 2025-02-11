@@ -18,12 +18,15 @@ impl Validation {
     }
 
     pub fn validate_ast(&mut self, ast: &AstNode) -> anyhow::Result<()> {
-        let AstNode::Program { function_or_declaration_list } = ast else {
+        let AstNode::Program {
+            function_or_declaration_list,
+        } = ast
+        else {
             return Err(anyhow!("Called validate_ast on node that is not a program"));
         };
 
         let mut function_set: HashSet<&str> = HashSet::new();
-        let mut global_var_map: HashMap<&str, bool> = HashMap::new();  // value: has been initialized
+        let mut global_var_map: HashMap<&str, bool> = HashMap::new(); // value: has been initialized
 
         // track function declarations/definitions
         for node in function_or_declaration_list {
@@ -34,14 +37,21 @@ impl Validation {
                     body: ref statement,
                 } => {
                     if global_var_map.contains_key(&function_name[..]) {
-                        return Err(anyhow!("function name already used as global variable name"));
+                        return Err(anyhow!(
+                            "function name already used as global variable name"
+                        ));
                     }
                     function_set.insert(function_name);
                     self.validate_function(function_name, parameters, statement)?;
                 }
-                AstNode::Declare { ref variable, ref expression } => {
+                AstNode::Declare {
+                    ref variable,
+                    ref expression,
+                } => {
                     if function_set.contains(&variable[..]) {
-                        return Err(anyhow!("global variable name already used as function name"));
+                        return Err(anyhow!(
+                            "global variable name already used as function name"
+                        ));
                     }
                     if let Some(is_initialized) = global_var_map.get(&variable[..]) {
                         if *is_initialized {
@@ -51,15 +61,19 @@ impl Validation {
                     global_var_map.insert(variable, expression.is_some());
                     if let Some(boxed) = expression {
                         match **boxed {
-                            AstNode::Constant { constant: _ } => {}  // do nothing
+                            AstNode::Constant { constant: _ } => {} // do nothing
                             _ => {
-                                return Err(anyhow!("global variable can only be initialized as constant"));
+                                return Err(anyhow!(
+                                    "global variable can only be initialized as constant"
+                                ));
                             }
                         }
                     }
                 }
                 _ => {
-                    return Err(anyhow!("Program contains top-level node that is not function or declaration"));
+                    return Err(anyhow!(
+                        "Program contains top-level node that is not function or declaration"
+                    ));
                 }
             }
         }
@@ -68,9 +82,9 @@ impl Validation {
     }
 
     fn validate_function(
-        &mut self, 
-        function_name: &String, 
-        parameters: &[String], 
+        &mut self,
+        function_name: &String,
+        parameters: &[String],
         statement: &Option<Box<AstNode>>,
     ) -> anyhow::Result<()> {
         match statement {

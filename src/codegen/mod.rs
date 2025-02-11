@@ -21,7 +21,7 @@ struct CodegenContext<'a> {
 pub struct Codegen {
     stack_offset_bytes: i32,
     label_counter: u32,
-    global_variable_map: HashMap<String, Option<u32>>
+    global_variable_map: HashMap<String, Option<u32>>,
 }
 
 impl Codegen {
@@ -29,12 +29,15 @@ impl Codegen {
         Codegen {
             stack_offset_bytes: 0,
             label_counter: 1,
-            global_variable_map: HashMap::new()
+            global_variable_map: HashMap::new(),
         }
     }
 
     pub fn codegen(&mut self, ast: AstNode) -> anyhow::Result<String> {
-        let AstNode::Program { function_or_declaration_list } = ast else {
+        let AstNode::Program {
+            function_or_declaration_list,
+        } = ast
+        else {
             return Err(anyhow!("Called codegen on node that is not a program"));
         };
 
@@ -42,7 +45,11 @@ impl Codegen {
 
         // populate global variable map
         for node in function_or_declaration_list.iter() {
-            if let AstNode::Declare { variable, expression } = node {
+            if let AstNode::Declare {
+                variable,
+                expression,
+            } = node
+            {
                 // populate the global variable map
                 // can be declared many times, but defined only once
                 if let Some(val) = self.global_variable_map.get(variable) {
@@ -56,13 +63,16 @@ impl Codegen {
                 let constant_option = match expression {
                     Some(boxed) => {
                         let AstNode::Constant { constant } = **boxed else {
-                            return Err(anyhow!("Global variable defined with non-constant expression"))
+                            return Err(anyhow!(
+                                "Global variable defined with non-constant expression"
+                            ));
                         };
                         Some(constant)
                     }
-                    None => None
+                    None => None,
                 };
-                self.global_variable_map.insert(variable.clone(), constant_option);
+                self.global_variable_map
+                    .insert(variable.clone(), constant_option);
             }
         }
 
@@ -72,18 +82,27 @@ impl Codegen {
         // traverse the AST
         for node in function_or_declaration_list.iter() {
             match node {
-                AstNode::Function { function_name: _, parameters: _, body: _ } => { 
+                AstNode::Function {
+                    function_name: _,
+                    parameters: _,
+                    body: _,
+                } => {
                     // reset stack offset bytes
                     self.stack_offset_bytes = 0;
                     // generate the function
                     let generated_func = self.generate_function(node)?;
                     result.push_str(&generated_func);
                 }
-                AstNode::Declare { variable: _, expression: _ } => {
+                AstNode::Declare {
+                    variable: _,
+                    expression: _,
+                } => {
                     // do nothing for now; generate global variables later
                 }
                 _ => {
-                    return Err(anyhow!("Program contains top-level node that is not function or declaration"));
+                    return Err(anyhow!(
+                        "Program contains top-level node that is not function or declaration"
+                    ));
                 }
             }
         }
@@ -159,38 +178,52 @@ impl Codegen {
         result
     }
 
-    fn generate_global_variable_assignment(&mut self, variable: &String, defined_at_declaration: bool) -> String {
+    fn generate_global_variable_assignment(
+        &mut self,
+        variable: &String,
+        defined_at_declaration: bool,
+    ) -> String {
         let mut result = String::new();
 
         if defined_at_declaration {
             let offset_directive = "PAGE";
             result.push_str(&Self::format_instruction(
                 "adrp",
-                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)],
             ));
             // write to absolute memory address
             result.push_str(&Self::format_instruction(
                 "str",
-                vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+                vec![
+                    "w0",
+                    &format!("[x8, _{}@{}OFF]", variable, offset_directive),
+                ],
             ));
         } else {
             let offset_directive: &str = "GOTPAGE";
             // GOT indirection
             result.push_str(&Self::format_instruction(
                 "adrp",
-                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)],
             ));
             // write to absolute memory address
             result.push_str(&Self::format_instruction(
                 "ldr",
-                vec!["x8", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+                vec![
+                    "x8",
+                    &format!("[x8, _{}@{}OFF]", variable, offset_directive),
+                ],
             ));
             result.push_str(&Self::format_instruction("str", vec!["w0", "[x8]"]));
         }
         result
     }
 
-    fn generate_global_variable_read(&mut self, variable: &String, defined_at_declaration: bool) -> String {
+    fn generate_global_variable_read(
+        &mut self,
+        variable: &String,
+        defined_at_declaration: bool,
+    ) -> String {
         // overwrite value at address of global variable
         let mut result = String::new();
 
@@ -198,30 +231,33 @@ impl Codegen {
             let offset_directive = "PAGE";
             result.push_str(&Self::format_instruction(
                 "adrp",
-                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)],
             ));
             // write to absolute memory address
             result.push_str(&Self::format_instruction(
                 "ldr",
-                vec!["w0", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+                vec![
+                    "w0",
+                    &format!("[x8, _{}@{}OFF]", variable, offset_directive),
+                ],
             ));
         } else {
             let offset_directive: &str = "GOTPAGE";
             // load address of current frame to x8
             result.push_str(&Self::format_instruction(
                 "adrp",
-                vec!["x8", &format!("_{}@{}", variable, offset_directive)]
+                vec!["x8", &format!("_{}@{}", variable, offset_directive)],
             ));
             // load absolute memory address
             result.push_str(&Self::format_instruction(
                 "ldr",
-                vec!["x8", &format!("[x8, _{}@{}OFF]", variable, offset_directive)]
+                vec![
+                    "x8",
+                    &format!("[x8, _{}@{}OFF]", variable, offset_directive),
+                ],
             ));
             // load absolute memory address
-            result.push_str(&Self::format_instruction(
-                "ldr",
-                vec!["w0", "[x8]"]
-            ));
+            result.push_str(&Self::format_instruction("ldr", vec!["w0", "[x8]"]));
         }
         result
     }
@@ -697,7 +733,6 @@ impl Codegen {
                 } else {
                     return Err(anyhow!("Variable not declared before read"));
                 }
-
             }
             AstNode::UnaryOp { operator, factor } => {
                 let nested_expression = self.generate_expression(factor, codegen_context)?;
@@ -833,7 +868,9 @@ impl Codegen {
                 } else if self.global_variable_map.contains_key(variable) {
                     // move w0 to address of global variable
                     let is_initialized = self.global_variable_map.get(variable).unwrap().is_some();
-                    result.push_str(&self.generate_global_variable_assignment(variable, is_initialized));
+                    result.push_str(
+                        &self.generate_global_variable_assignment(variable, is_initialized),
+                    );
                 } else {
                     return Err(anyhow!("Variable not declared before assignment"));
                 }
@@ -919,9 +956,7 @@ impl Codegen {
         Ok(result)
     }
 
-    fn generate_global_variables(
-        &mut self,
-    ) -> anyhow::Result<String> {
+    fn generate_global_variables(&mut self) -> anyhow::Result<String> {
         if self.global_variable_map.is_empty() {
             return Ok("".into());
         }
@@ -1167,48 +1202,70 @@ mod tests {
         let mut codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
         // function declaration does not result in generated assembly
-        assert_str_trim_eq!(result, "
+        assert_str_trim_eq!(
+            result,
+            "
             .text
-        ")
+        "
+        )
     }
 
     #[test]
     fn test_global_variables() {
-        let global_variable_1 = AstNode::Declare { variable: "a".into(), expression: None };
-        let global_variable_2 = AstNode::Declare { variable: "a".into(), expression: None };
-        let global_variable_3 = AstNode::Declare { 
-            variable: "a".into(), 
-            expression: Some(Box::new(AstNode::Constant { constant: 1 })) 
+        let global_variable_1 = AstNode::Declare {
+            variable: "a".into(),
+            expression: None,
+        };
+        let global_variable_2 = AstNode::Declare {
+            variable: "a".into(),
+            expression: None,
+        };
+        let global_variable_3 = AstNode::Declare {
+            variable: "a".into(),
+            expression: Some(Box::new(AstNode::Constant { constant: 1 })),
         };
         let program = AstNode::Program {
-            function_or_declaration_list: vec![global_variable_1, global_variable_2, global_variable_3],
+            function_or_declaration_list: vec![
+                global_variable_1,
+                global_variable_2,
+                global_variable_3,
+            ],
         };
 
         let mut codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
-        assert_str_trim_eq!(result, "
+        assert_str_trim_eq!(
+            result,
+            "
         			.text
                     .data
                     .globl _a
                     .p2align	2
                 _a:
                 	.long	1
-            ")
+            "
+        )
     }
 
     #[test]
     fn test_global_variable_undeclared() {
-        let global_variable_1 = AstNode::Declare { variable: "a".into(), expression: None };
+        let global_variable_1 = AstNode::Declare {
+            variable: "a".into(),
+            expression: None,
+        };
         let program = AstNode::Program {
             function_or_declaration_list: vec![global_variable_1],
         };
         let mut codegen = Codegen::new();
         let result = codegen.codegen(program).unwrap();
-        assert_str_trim_eq!(result, "
+        assert_str_trim_eq!(
+            result,
+            "
         			.text
                     .data
                 	.comm	_a,4,2
-            ")
+            "
+        )
     }
 
     #[test]
@@ -1727,7 +1784,7 @@ mod tests {
             "
         )
     }
-    
+
     #[test]
     fn test_variable_read_nested() {
         let statement_1 = AstNode::Declare {
@@ -1807,7 +1864,7 @@ mod tests {
         let mut codegen = Codegen {
             label_counter: 1,
             stack_offset_bytes: 0,
-            global_variable_map
+            global_variable_map,
         };
         let codegen_context = CodegenContext {
             variable_map: &mut HashMap::new(),
@@ -1822,7 +1879,9 @@ mod tests {
             expression: Box::new(AstNode::Constant { constant: 2 }),
         };
 
-        let result = codegen.generate_expression(&assignment_1, &codegen_context).unwrap();
+        let result = codegen
+            .generate_expression(&assignment_1, &codegen_context)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1836,7 +1895,9 @@ mod tests {
             variable: "b".into(),
             expression: Box::new(AstNode::Constant { constant: 2 }),
         };
-        let result = codegen.generate_expression(&assignment_2, &codegen_context).unwrap();
+        let result = codegen
+            .generate_expression(&assignment_2, &codegen_context)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1857,7 +1918,7 @@ mod tests {
         let mut codegen = Codegen {
             label_counter: 1,
             stack_offset_bytes: 0,
-            global_variable_map
+            global_variable_map,
         };
         let codegen_context = CodegenContext {
             variable_map: &mut HashMap::new(),
@@ -1871,7 +1932,9 @@ mod tests {
             variable: "a".into(),
         };
 
-        let result = codegen.generate_expression(&read_1, &codegen_context).unwrap();
+        let result = codegen
+            .generate_expression(&read_1, &codegen_context)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1883,7 +1946,9 @@ mod tests {
         let read_2 = AstNode::Variable {
             variable: "b".into(),
         };
-        let result = codegen.generate_expression(&read_2, &codegen_context).unwrap();
+        let result = codegen
+            .generate_expression(&read_2, &codegen_context)
+            .unwrap();
         assert_str_trim_eq!(
             result,
             "
@@ -1893,7 +1958,6 @@ mod tests {
             "
         );
     }
-
 
     #[test]
     fn test_if_statement_no_body() {
